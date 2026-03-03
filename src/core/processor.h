@@ -215,6 +215,75 @@ private:
         return 4;
     }
 
+    // ── 6C: Skip When ───────────────────────────────────────────────────
+    int exec_skip_when(MicroFields f) {
+        uint8_t src_grp = f.src_group();
+        uint8_t src_sel = f.src_select();
+        uint8_t variant = f.variant();
 
+        uint8_t val = regs.read(src_grp, src_sel) & 0xF;
+        uint8_t test = f.ME();  // test value
 
-} // namespace b1700
+        bool skip = false;
+        switch (variant) {
+            case 0: skip = false; break;     // never skip
+            case 1: skip = (val == test); break;
+            case 2: skip = (val != test); break;
+            case 3: skip = (val & test) != 0; break;  // any bit match
+            default: skip = false; break;
+        }
+
+        if (skip) {
+            regs.MAR = (regs.MAR + 16) & MASK_19;  // skip next micro
+            return 4;
+        }
+        return 2;
+    }
+
+    // ── 7C: Read/Write Memory ────────────────────────────────────────────
+    int exec_memory_access(MicroFields f) {
+        bool is_write = f.mem_is_write();
+        uint8_t reg_id = f.mem_register(); // 0=X,1=Y,2=T,3=L
+        bool reverse   = f.mem_field_reverse();
+        uint8_t flen   = f.mem_field_length();
+        uint8_t count_var = f.mem_count_variant();
+
+        // Field length: 0 means use CPL
+        if (flen == 0) flen = regs.CPL();
+        if (flen == 0) flen = 24;
+        if (flen > 24) flen = 24;
+
+        // Save MAR to TEMPB, transfer FA to MAR
+        regs.TEMPB = regs.MAR;
+        uint32_t bit_addr = regs.FA & MASK_24;
+
+        // Map register ID to actual register pointer
+        reg24_t* reg_ptr;
+        switch (reg_id) {
+            case 0: reg_ptr = &regs.X; break;
+            case 1: reg_ptr = &regs.Y; break;
+            case 2: reg_ptr = &regs.T; break;
+            case 3: reg_ptr = &regs.L; break;
+            default: reg_ptr = &regs.X; break;
+        }
+
+        if (is_write) {
+            // Write register to memory
+            uint32_t val = *reg_ptr & ((1u << flen) - 1);
+            mem.write_field(bit_addr, flen, val, reverse);
+        } else {
+            // Read memory to register
+            uint32_t val = mem.read_field(bit_addr, flen, reverse);
+            *reg_ptr = val & MASK_24;
+        }
+
+        // Apply count variant to FA and/or FL
+        apply_count_variant(count_var, flen);
+
+        // Restore MAR from TEMPB
+        regs.MAR = regs.TEMPB;
+
+        return 8;
+    }
+
+ 
