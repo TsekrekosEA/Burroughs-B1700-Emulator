@@ -463,6 +463,180 @@ private:
         return 6;
     }
 
+    // ── 6D: Count FA/FL  /  6E: Carry FF ────────────────────────────────
+    int exec_count_or_carry(MicroFields f) {
+        // Distinguish 6D from 6E by further decode.
+        // 6E: MC=0000 MD=0110 ME=0000 MF=variant
+        // 6D: MC=0000 MD=0110 ME[7:5]=count_var ME[4:0]:MF=literal
+        // If ME == 0 and MF has carry bits, it's 6E.
+        // Actually, re-reading: 6E has MD=0110 and specific pattern.
+        // Let's check: if the top of ME is 0 and the variant bits are in MF:
+        uint8_t me = f.ME();
+        uint8_t mf = f.MF();
 
+        // Heuristic: 6E is when ME == 0 (no count variant used)
+        if (me == 0) {
+            return exec_carry_ff(f);
+        }
+
+        // 6D: Count FA/FL
+        uint8_t count_var = (me >> 1) & 0x7;  // variant in ME[3:1]
+        uint8_t literal = ((me & 1) << 4) | mf;
+        if (literal == 0) literal = regs.CPL();
+
+        apply_count_variant(count_var, literal);
+        return 4;
+    }
+
+    int exec_carry_ff(MicroFields f) {
+        uint8_t v = f.MF();
+        uint8_t cpl = regs.CPL();
+        if (cpl == 0) cpl = 24;
+        uint32_t mask = (cpl >= 24) ? MASK_24 : ((1u << cpl) - 1);
+        uint32_t mx = regs.X & mask;
+        uint32_t my = regs.Y & mask;
+
+        if (v & 1) regs.set_CYF(0);       // clear
+        if (v & 2) regs.set_CYF(1);       // set
+        if (v & 4) {
+            // CYF ← CYL (carry from add)
+            uint32_t sum = mx + my;
+            bool carry = sum > mask;
+            regs.set_CYF(carry ? 1 : 0);
+        }
+        if (v & 8) {
+            // CYD: if X≠Y then 1, else CYF
+            if (mx != my)
+                regs.set_CYF(1);
+            // else CYF unchanged
+        }
+        return 2;
+    }
+
+    // ── 7D: Exchange Doublepad Word ──────────────────────────────────────
+    int exec_exchange_doublepad(MicroFields f) {
+        uint8_t src_pad = f.ME();
+        uint8_t dst_pad = f.MF();
+        if (src_pad >= SCRATCHPAD_WORDS) src_pad = 0;
+        if (dst_pad >= SCRATCHPAD_WORDS) dst_pad = 0;
+
+        // Save FA:FB
+        reg24_t save_fa = regs.FA;
+        reg24_t save_fb = regs.FB;
+
+        // Load from source scratchpad
+        regs.FA = regs.scratchpad[src_pad].left;
+        regs.FB = regs.scratchpad[src_pad].right;
+
+        // Store saved values to destination
+        regs.scratchpad[dst_pad].left  = save_fa;
+        regs.scratchpad[dst_pad].right = save_fb;
+
+        return 4;
+    }
+
+    // ── 8D: Scratchpad Relate ────────────────────────────────────────────
+    int exec_scratchpad_relate(MicroFields f) {
+        uint8_t pad_addr = f.ME();
+        bool negative = (f.MF() >> 3) & 1;
+        if (pad_addr >= SCRATCHPAD_WORDS) pad_addr = 0;
+
+        reg24_t pad_val = regs.scratchpad[pad_addr].left;
+        if (negative)
+            regs.FA = (regs.FA - pad_val) & MASK_24;
+        else
+            regs.FA = (regs.FA + pad_val) & MASK_24;
+
+        return 4;
+    }
+
+    // ── 3F: Normalize X ──────────────────────────────────────────────────
+    int exec_normalize(MicroFields /*f*/) {
+        uint8_t cpl = regs.CPL();
+        if (cpl == 0) cpl = 24;
+        uint16_t fl = regs.FL();
+        int clks = 0;
+
+        // Shift X left while FL > 0 and the bit at CPL position is 0
+        uint32_t check_bit = 1u << (cpl - 1);
+
+        if (regs.X & check_bit) {
+            return 4;  // already normalized
+        }
+
+        while (fl > 0 && !(regs.X & check_bit)) {
+            regs.X = (regs.X << 1) & MASK_24;
+            fl--;
+            clks += 6;
+        }
+
+        regs.set_FL(fl);
+        return clks + (fl == 0 ? 2 : 4);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // HELPERS
+    // ══════════════════════════════════════════════════════════════════════
+
+    void apply_count_variant(uint8_t v, uint8_t amount) {
+        // 7 variants for counting FA and/or FL
+        if (v & 0x1) {
+            // bit 0: FA up (for v=001,011) or FA down (for v=100,101,111)
+            // Actually the encoding is:
+            // 000=none, 001=FA+, 010=FL+, 011=FA+ FL-,
+            // 100=FA- FL+, 101=FA-, 110=FL-, 111=FA- FL-
+        }
+
+        switch (v) {
+            case 0: break;
+            case 1: regs.FA = (regs.FA + amount) & MASK_24; break;
+            case 2: {
+                uint16_t fl = regs.FL();
+                regs.set_FL(fl + amount);
+                break;
+            }
+            case 3:
+                regs.FA = (regs.FA + amount) & MASK_24;
+                {
+                    uint16_t fl = regs.FL();
+                    if (fl >= amount) regs.set_FL(fl - amount);
+                    else regs.set_FL(0);
+                }
+                break;
+            case 4: {
+                regs.FA = (regs.FA - amount) & MASK_24;
+                uint16_t fl = regs.FL();
+                regs.set_FL(fl + amount);
+                break;
+            }
+            case 5:
+                regs.FA = (regs.FA - amount) & MASK_24;
+                break;
+            case 6: {
+                uint16_t fl = regs.FL();
+                if (fl >= amount) regs.set_FL(fl - amount);
+                else regs.set_FL(0);
+                break;
+            }
+            case 7: {
+                regs.FA = (regs.FA - amount) & MASK_24;
+                uint16_t fl = regs.FL();
+                if (fl >= amount) regs.set_FL(fl - amount);
+                else regs.set_FL(0);
+                break;
+            }
+        }
+    }
+
+    void trace_log(uint32_t pc, uint16_t micro, int clks) {
+        std::printf("CYCLE %08lu  MAR=0x%05X  M=0x%04X  [%d clks]  "
+                    "X=%06X Y=%06X T=%06X L=%06X FA=%06X FL=%04X\n",
+                    static_cast<unsigned long>(cycles),
+                    pc, micro, clks,
+                    regs.X & MASK_24, regs.Y & MASK_24,
+                    regs.T & MASK_24, regs.L & MASK_24,
+                    regs.FA & MASK_24, regs.FL());
+    }
+};
 
 } // namespace b1700
