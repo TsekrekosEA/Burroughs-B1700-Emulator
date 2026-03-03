@@ -286,4 +286,59 @@ private:
         return 8;
     }
 
- 
+    // ── 8C / 9C: Literal Move ────────────────────────────────────────────
+    int exec_literal_move(MicroFields f) {
+        uint8_t dst_grp = f.MC();  // MC = dest register group
+        uint8_t dst_sel = 2;       // forced to select 2
+
+        // Check if this is a 9C (24-bit literal) by looking at MF[3:2]
+        // Actually, 8C vs 9C distinction: if ME:MF encodes a second word fetch.
+        // For simplicity: 8C has an 8-bit literal in MD:ME.
+        // 9C is identified when... this is tricky.
+        //
+        // Practical approach: treat as 8C (8-bit literal).
+        // 9C would need to fetch the next word.  We'll detect 9C by
+        // checking a special encoding. For now, implement 8C:
+
+        uint8_t literal = f.literal8();
+        uint32_t val = literal;
+
+        bool dst_is_mar = (dst_grp == 5 && dst_sel == 0);
+        regs.write(dst_grp, dst_sel, val);
+
+        return dst_is_mar ? 4 : 2;
+    }
+
+    // ── 12C/13C: Branch Relative ─────────────────────────────────────────
+    int exec_branch(MicroFields f) {
+        bool negative = f.branch_sign();
+        uint16_t disp = f.displacement();
+
+        if (negative) {
+            regs.MAR = (regs.MAR - disp * 16) & MASK_19;
+        } else {
+            regs.MAR = (regs.MAR + disp * 16) & MASK_19;
+        }
+        return 4;
+    }
+
+    // ── 14C/15C: Call ────────────────────────────────────────────────────
+    int exec_call(MicroFields f) {
+        // Push return address (current MAR, which is already next-in-line)
+        regs.push(regs.MAR);
+
+        // Branch same as 12C/13C
+        bool negative = f.branch_sign();
+        uint16_t disp = f.displacement();
+
+        if (negative) {
+            regs.MAR = (regs.MAR - disp * 16) & MASK_19;
+        } else {
+            regs.MAR = (regs.MAR + disp * 16) & MASK_19;
+        }
+        return 5;
+    }
+
+
+
+} // namespace b1700
