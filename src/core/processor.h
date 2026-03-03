@@ -190,5 +190,31 @@ private:
         return 2;
     }
 
+    // ── 4C/5C: Bit Test Branch ───────────────────────────────────────────
+    int exec_bit_test_branch(MicroFields f) {
+        // MC[13] = 0: branch if false (4C), MC[13] = 1: branch if true (5C)
+        bool branch_if_true = (f.raw >> 13) & 1;
+
+        // Extract register and bit to test
+        // The encoding packs register group/select and bit position.
+        // For simplicity, decode MC[12]:MD[11:8] as register address,
+        // and ME:MF as displacement.
+        uint8_t reg_group = f.MC() & 0x3;  // approximate
+        uint8_t reg_select = f.src_select();
+        uint8_t bit_pos = f.MD() & 0x3;
+
+        uint8_t val = regs.read(reg_group, reg_select) & 0xF;
+        bool bit_value = (val >> bit_pos) & 1;
+
+        bool take_branch = (branch_if_true == bit_value);
+
+        if (take_branch) {
+            int8_t disp = static_cast<int8_t>(f.raw & 0xFF);
+            regs.MAR = (regs.MAR + disp * 16) & MASK_19;
+        }
+        return 4;
+    }
+
+
 
 } // namespace b1700
