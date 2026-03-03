@@ -339,6 +339,130 @@ private:
         return 5;
     }
 
+    // ── 2C: Scratchpad Move  /  2E: Cassette Control ————————————————————
+    int exec_scratchpad_move_or_cassette(MicroFields f) {
+        // Distinguish 2C from 2E by ME/MF bits.
+        // 2E has specific encoding pattern.  For now, treat as 2C.
+        uint8_t pad_addr = f.MD();   // scratchpad word 0–15
+        uint8_t reg_grp  = f.ME();   // register group
+        uint8_t reg_sel  = (f.MF() >> 2) & 0x3;
+        uint8_t variant  = f.MF() & 0x3;
+
+        if (pad_addr >= SCRATCHPAD_WORDS) pad_addr = 0;
+
+        auto& word = regs.scratchpad[pad_addr];
+
+        switch (variant) {
+            case 0: // Register → Left scratchpad
+                word.left = regs.read(reg_grp, reg_sel) & MASK_24;
+                break;
+            case 1: // Left scratchpad → Register
+                regs.write(reg_grp, reg_sel, word.left);
+                break;
+            case 2: // Register → Right scratchpad
+                word.right = regs.read(reg_grp, reg_sel) & MASK_24;
+                break;
+            case 3: // Right scratchpad → Register
+                regs.write(reg_grp, reg_sel, word.right);
+                break;
+        }
+        return 3;
+    }
+
+    // ── 3E: Bias ─────────────────────────────────────────────────────────
+    int exec_bias(MicroFields f) {
+        uint8_t variant = f.MF() & 0x7;
+        bool test_cpl = (f.ME() >> 3) & 1;
+
+        // Set CPU: CPU ← 1 if FU == 4, else CPU ← 0
+        uint8_t fu = regs.FU();
+        regs.set_CPU(fu == 4 ? 1 : 0);
+
+        // Set CPL based on variant
+        uint8_t cpl;
+        uint16_t fl  = regs.FL();
+        uint16_t sfl = static_cast<uint16_t>(regs.scratchpad[0].right & MASK_16);
+
+        switch (variant) {
+            case 0: cpl = fu; break;
+            case 1: cpl = (fl > 24) ? 24 : static_cast<uint8_t>(fl); break;
+            case 2: cpl = (sfl > 24) ? 24 : static_cast<uint8_t>(sfl); break;
+            case 3: {
+                uint16_t mn = (fl < sfl) ? fl : sfl;
+                cpl = (mn > 24) ? 24 : static_cast<uint8_t>(mn);
+                break;
+            }
+            case 4: cpl = regs.CPL(); break;  // unchanged
+            case 5: {
+                uint16_t mn = (regs.CPL() < fl) ? regs.CPL() : static_cast<uint8_t>(fl > 24 ? 24 : fl);
+                cpl = static_cast<uint8_t>(mn);
+                break;
+            }
+            case 6: cpl = regs.CPL(); break;  // unchanged
+            default: cpl = regs.CPL(); break;
+        }
+
+        regs.set_CPL(cpl);
+
+        // Conditional skip
+        if (test_cpl && cpl != 0) {
+            regs.MAR = (regs.MAR + 16) & MASK_19;
+        }
+
+        return 2;
+    }
+
+    // ── 4D: Shift/Rotate X or Y ─────────────────────────────────────────
+    int exec_shift_xy(MicroFields f) {
+        bool is_y     = f.shift4d_reg_is_y();
+        bool is_right = f.shift4d_is_right();
+        bool is_rot   = f.shift4d_is_rotate();
+        uint8_t count = f.shift4d_count();
+        if (count > 24) count = 24;
+
+        reg24_t& reg = is_y ? regs.Y : regs.X;
+        reg24_t val = reg & MASK_24;
+
+        if (count == 0) {
+            // No shift
+        } else if (is_rot) {
+            count %= 24;
+            if (is_right) {
+                val = ((val >> count) | (val << (24 - count))) & MASK_24;
+            } else {
+                val = ((val << count) | (val >> (24 - count))) & MASK_24;
+            }
+        } else {
+            if (is_right) {
+                val >>= count;
+            } else {
+                val = (val << count) & MASK_24;
+            }
+        }
+
+        reg = val;
+        return 3;
+    }
+
+    // ── 5D: Shift X:Y Concatenated ──────────────────────────────────────
+    int exec_shift_xy_concat(MicroFields f) {
+        bool is_right = f.shift5d_is_right();
+
+        // Concatenate: X is MSB (bits 47:24), Y is LSB (bits 23:0)
+        uint64_t combined = (static_cast<uint64_t>(regs.X & MASK_24) << 24) |
+                            (regs.Y & MASK_24);
+
+        if (is_right) {
+            combined >>= 1;
+        } else {
+            combined <<= 1;
+        }
+
+        regs.X = static_cast<reg24_t>((combined >> 24) & MASK_24);
+        regs.Y = static_cast<reg24_t>(combined & MASK_24);
+        return 6;
+    }
+
 
 
 } // namespace b1700
