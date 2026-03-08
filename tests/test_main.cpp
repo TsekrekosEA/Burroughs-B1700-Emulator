@@ -284,3 +284,178 @@ static void test_exec_branch_forward() {
     else FAIL("halted=%d T=0x%X", cpu.regs.halted, cpu.regs.T);
 }
 
+static void test_exec_call_return() {
+    TEST("exec: 14C call + TAS→MAR return");
+    auto cpu = make_cpu();
+
+    // word 0: CALL forward +3
+    write_micro(cpu.mem, 0, 0xE003);
+
+    // word 1: set T=0x42 (executed AFTER return)
+    write_micro(cpu.mem, 1, 0x4422);  // 8C to T
+
+    // word 2: HALT
+    write_micro(cpu.mem, 2, 0x0002);
+
+    // word 3: padding (skipped by call)
+    write_micro(cpu.mem, 3, 0x0000);
+
+    // word 4: subroutine target (word 0+1+3 = word 4)
+    write_micro(cpu.mem, 4, 0xA850);
+
+    cpu.regs.MAR = 0;
+    cpu.regs.T = 0;
+    cpu.run(100);
+
+    // After call to word 4, it immediately returns to word 1.
+    // Word 1: T=0x42, Word 2: HALT
+    if (cpu.regs.halted && cpu.regs.T == 0x42) PASS();
+    else FAIL("halted=%d T=0x%X", cpu.regs.halted, cpu.regs.T);
+}
+
+static void test_exec_memory_write_read() {
+    TEST("exec: 7C write X to mem, read to Y");
+    auto cpu = make_cpu();
+    cpu.regs.X = 0xFACE00;
+    cpu.regs.FA = 0x1000;   // bit address 4096 = byte 512
+    cpu.regs.set_CPL(24);
+
+    // 7C WRITE from X, len=0 (use CPL=24), count=0
+    // MC=0111, dir=1(write), reg=00(X), sign=0  → MD = 1000 = 0x8
+    // ME=0, MF=0 → field len concat = 0, count=0
+    write_micro(cpu.mem, 0, 0x7800);
+
+    // 7C READ to Y, len=0, count=0
+    // MC=0111, dir=0(read), reg=01(Y), sign=0  → MD = 0010 = 0x2
+    write_micro(cpu.mem, 1, 0x7200);
+
+    // HALT
+    write_micro(cpu.mem, 2, 0x0002);
+
+    cpu.regs.MAR = 0;
+    cpu.run(100);
+
+    if (cpu.regs.Y == 0xFACE00) PASS();
+    else FAIL("Y=0x%06X, expected 0xFACE00", cpu.regs.Y);
+}
+
+static void test_exec_4bit_manipulate() {
+    TEST("exec: 3C SET TA → TD");
+    auto cpu = make_cpu();
+
+    cpu.regs.T = 0xA00000;  // TA=0xA
+
+    // 3C: src=TA(grp0,sel0), func=SET(0), dst=TD(grp0,sel3)
+    // MC=0, MD=(0<<2)|0=0, ME=0, MF=(3<<2)|1=0xD
+    // MF[1:0]=01 identifies 3C
+    write_micro(cpu.mem, 0, 0x000D);
+    write_micro(cpu.mem, 1, 0x0002);
+
+    cpu.regs.MAR = 0;
+    cpu.run(100);
+
+    uint8_t td = (cpu.regs.T >> 8) & 0xF;
+    if (td == 0xA) PASS();
+    else FAIL("TD=0x%X, expected 0xA", td);
+}
+
+static void test_exec_shift_xy() {
+    TEST("exec: 4D shift X left by 4");
+    auto cpu = make_cpu();
+    cpu.regs.X = 0x000001;
+
+    cpu.regs.X = 0x000100;
+
+    // Shift X right by 4: MD[11]=0,MD[10]=1,MD[9]=0,MD[8]=0 → MD=0100=4
+    // ME=4 (count), MF=0
+    // raw = 0000 0100 0100 0000 = 0x0440
+    write_micro(cpu.mem, 0, 0x0440);
+    write_micro(cpu.mem, 1, 0x0002);
+
+    cpu.regs.MAR = 0;
+    cpu.run(100);
+
+    if (cpu.regs.X == 0x000010) PASS();
+    else FAIL("X=0x%06X, expected 0x000010", cpu.regs.X);
+}
+
+static void test_exec_exchange_doublepad() {
+    TEST("exec: 7D exchange FA:FB with scratchpad");
+    auto cpu = make_cpu();
+    cpu.regs.FA = 0x111111;
+    cpu.regs.FB = 0x222222;
+    cpu.regs.scratchpad[3].left  = 0xAAAAAA;
+    cpu.regs.scratchpad[3].right = 0xBBBBBB;
+
+    // 7D: MC=0000, MD=0111, ME=3(src_pad), MF=3(dst_pad)
+    // Same src and dst for a swap:
+    write_micro(cpu.mem, 0, 0x0733);
+    write_micro(cpu.mem, 1, 0x0002);
+
+    cpu.regs.MAR = 0;
+    cpu.run(100);
+
+    bool ok = cpu.regs.FA == 0xAAAAAA && cpu.regs.FB == 0xBBBBBB &&
+              cpu.regs.scratchpad[3].left == 0x111111 &&
+              cpu.regs.scratchpad[3].right == 0x222222;
+    if (ok) PASS();
+    else FAIL("FA=0x%X FB=0x%X pad.L=0x%X pad.R=0x%X",
+              cpu.regs.FA, cpu.regs.FB,
+              cpu.regs.scratchpad[3].left, cpu.regs.scratchpad[3].right);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// MAIN
+// ══════════════════════════════════════════════════════════════════════════
+
+int main() {
+    std::puts("=== Burroughs B1700 Emulator — Unit Tests ===\n");
+
+    // Memory tests
+    std::puts("Memory:");
+    test_memory_byte_access();
+    test_memory_bit_field_aligned();
+    test_memory_bit_field_unaligned();
+    test_memory_24bit_field();
+    test_memory_bit_field_reverse();
+    test_memory_micro_fetch();
+
+    // Register tests
+    std::puts("\nRegisters:");
+    test_register_read_write_basic();
+    test_register_t_nibbles();
+    test_register_t_nibble_write();
+    test_register_a_stack();
+    test_register_a_stack_wrap();
+    test_register_cp_fields();
+    test_register_scratchpad();
+    test_register_func_box_sum();
+    test_register_func_box_diff();
+    test_register_func_box_and_xor();
+    test_register_null();
+
+    // Processor execution tests
+    std::puts("\nExecution:");
+    test_exec_nop_halt();
+    test_exec_register_move();
+    test_exec_literal_8bit();
+    test_exec_branch_forward();
+    test_exec_call_return();
+    test_exec_memory_write_read();
+    test_exec_4bit_manipulate();
+    test_exec_shift_xy();
+    test_exec_exchange_doublepad();
+    test_exec_bias();
+
+    // BCD tests
+    std::puts("\nBCD:");
+    test_bcd_addition();
+
+    // Summary
+    std::printf("\n=== Results: %d/%d passed", tests_passed, tests_run);
+    if (tests_failed > 0)
+        std::printf(", %d FAILED", tests_failed);
+    std::puts(" ===\n");
+
+    return tests_failed > 0 ? 1 : 0;
+}
