@@ -1,0 +1,19 @@
+* ═══════════════════════════════════════════════════════════════════════
+* B1700 MIL Test Program 2 — Branching
+* Tests: GO TO, CALL, EXIT, labels
+* ═══════════════════════════════════════════════════════════════════════
+*
+* Expected result: T = H000003 (set in subroutine)
+*                  X = H000001 (set before call)
+*                  Y = H000002 (set after call return)
+*
+
+START       LIT 1 TO X                   * X ← 1
+            CALL MYSUB                   * call subroutine
+            LIT 2 TO Y                   * Y ← 2 (after return)
+            GO TO DONE
+
+MYSUB       LIT 3 TO T                   * T ← 3
+            EXIT                         * return
+
+DONE        HALT
