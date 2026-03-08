@@ -118,6 +118,7 @@ private:
         uint8_t md = f.MD();
 
         switch (md) {
+            case 0x1: return exec_dispatch(f);    // DISPATCH (I/O bus control)
             case 0x2: return exec_scratchpad_move_or_cassette(f);
             case 0x3: return exec_bias(f);          // 3E
             case 0x4: return exec_shift_xy(f);      // 4D
@@ -126,6 +127,7 @@ private:
             case 0x7: return exec_exchange_doublepad(f); // 7D
             case 0x8: return exec_scratchpad_relate(f);  // 8D
             case 0x9: return 2;  // 9D Monitor — NOP
+            case 0xA: return exec_bit_test_skip(f);  // Bit test + skip
             default:  return 2;  // Unknown — treat as NOP
         }
     }
@@ -192,45 +194,105 @@ private:
 
     // ── 4C/5C: Bit Test Branch ───────────────────────────────────────────
     int exec_bit_test_branch(MicroFields f) {
-        // MC[13] = 0: branch if false (4C), MC[13] = 1: branch if true (5C)
+        // Layout:
+        //   [15:14] = 01 (class identifier)
+        //   [13]    = 0:branch-if-false (4C), 1:branch-if-true (5C)
+        //   [12:9]  = register index (4 bits)
+        //   [8:7]   = bit to test (0-3)
+        //   [6:0]   = signed displacement (7-bit two's complement, in words)
+        //
+        // Register index → (group, select):
+        //   0:TA(0,0)  1:TB(0,1)  2:TC(0,2)  3:TD(0,3)
+        //   4:TE(1,0)  5:TF(1,1)  6:FU(2,0)  7:FT(2,1)
+        //   8:BICN(12,0)  9:FLCN(12,1)  10:XYCN(12,2)  11:XYST(12,3)
+        //   12:CC(13,2)  13:CA(13,0)  14:CB(13,1)  15:CD(13,3)
+
+        static const uint8_t idx_groups[]  = {0,0,0,0, 1,1, 2,2, 12,12,12,12, 13,13,13,13};
+        static const uint8_t idx_selects[] = {0,1,2,3, 0,1, 0,1, 0, 1, 2, 3,  2, 0, 1, 3};
+
         bool branch_if_true = (f.raw >> 13) & 1;
+        uint8_t reg_idx  = (f.raw >> 9) & 0xF;
+        uint8_t bit_pos  = (f.raw >> 7) & 0x3;
+        int8_t  disp     = static_cast<int8_t>((f.raw & 0x7F) | ((f.raw & 0x40) ? 0x80 : 0));
+        // Sign-extend 7-bit to 8-bit
 
-        // Extract register and bit to test
-        // The encoding packs register group/select and bit position.
-        // For simplicity, decode MC[12]:MD[11:8] as register address,
-        // and ME:MF as displacement.
-        uint8_t reg_group = f.MC() & 0x3;  // approximate
-        uint8_t reg_select = f.src_select();
-        uint8_t bit_pos = f.MD() & 0x3;
-
-        uint8_t val = regs.read(reg_group, reg_select) & 0xF;
+        uint8_t grp = idx_groups[reg_idx & 0xF];
+        uint8_t sel = idx_selects[reg_idx & 0xF];
+        uint8_t val = regs.read(grp, sel) & 0xF;
         bool bit_value = (val >> bit_pos) & 1;
 
         bool take_branch = (branch_if_true == bit_value);
 
         if (take_branch) {
-            int8_t disp = static_cast<int8_t>(f.raw & 0xFF);
             regs.MAR = (regs.MAR + disp * 16) & MASK_19;
         }
         return 4;
     }
 
+    // ── Bit Test Skip (D-class, MD=0xA) ─────────────────────────────────
+    int exec_bit_test_skip(MicroFields f) {
+        // Layout:
+        //   [15:8] = 0x0A (MC=0000, MD=1010)
+        //   [7]    = sense: 0=skip if bit is FALSE, 1=skip if bit is TRUE
+        //   [6:3]  = register index (4 bits)
+        //   [2:1]  = bit position to test (0-3)
+        //   [0]    = reserved (0)
+        //
+        // Register index → (group, select):
+        //   0:TA(0,0)  1:TB(0,1)  2:TC(0,2)  3:TD(0,3)
+        //   4:TE(1,0)  5:TF(1,1)  6:FU(2,0)  7:FT(2,1)
+        //   8:BICN(12,0)  9:FLCN(12,1)  10:XYCN(12,2)  11:XYST(12,3)
+        //   12:CC(13,2)  13:CA(13,0)  14:CB(13,1)  15:CD(13,3)
+
+        static const uint8_t idx_groups[]  = {0,0,0,0, 1,1, 2,2, 12,12,12,12, 13,13,13,13};
+        static const uint8_t idx_selects[] = {0,1,2,3, 0,1, 0,1, 0, 1, 2, 3,  2, 0, 1, 3};
+
+        bool skip_when_true = (f.raw >> 7) & 1;
+        uint8_t reg_idx = (f.raw >> 3) & 0xF;
+        uint8_t bit_pos = (f.raw >> 1) & 0x3;
+
+        uint8_t grp = idx_groups[reg_idx & 0xF];
+        uint8_t sel = idx_selects[reg_idx & 0xF];
+        uint8_t val = regs.read(grp, sel) & 0xF;
+        bool bit_value = (val >> bit_pos) & 1;
+
+        bool skip = (skip_when_true == bit_value);
+        return skip ? 4 : 2;  // skip next instruction (2 bytes) or continue
+    }
+
     // ── 6C: Skip When ───────────────────────────────────────────────────
     int exec_skip_when(MicroFields f) {
-        uint8_t src_grp = f.src_group();
-        uint8_t src_sel = f.src_select();
-        uint8_t variant = f.variant();
+        // Layout:
+        //   [15:12] = register group (0-3 only; higher conflicts with decode)
+        //   [11:10] = register select (0-3)
+        //   [9:8]   = variant V (0-3)
+        //   [7:4]   = mask / test value
+        //   [3:0]   = 0011 (class identifier)
+        //
+        // Variant meanings:
+        //   V=0: skip if (val & mask) != 0 (any masked bit set)
+        //   V=1: skip if val == mask (exact equality)
+        //   V=2: skip if (val & mask) == 0 (no masked bit set; inverted V=0)
+        //   V=3: skip if (val & mask) != 0, then clear matched bits
+
+        uint8_t src_grp = (f.raw >> 12) & 0xF;
+        uint8_t src_sel = (f.raw >> 10) & 0x3;
+        uint8_t variant = (f.raw >> 8) & 0x3;
+        uint8_t mask    = (f.raw >> 4) & 0xF;
 
         uint8_t val = regs.read(src_grp, src_sel) & 0xF;
-        uint8_t test = f.ME();  // test value
 
         bool skip = false;
         switch (variant) {
-            case 0: skip = false; break;     // never skip
-            case 1: skip = (val == test); break;
-            case 2: skip = (val != test); break;
-            case 3: skip = (val & test) != 0; break;  // any bit match
-            default: skip = false; break;
+            case 0: skip = (val & mask) != 0; break;         // skip if any masked bit set
+            case 1: skip = (val == mask); break;               // skip if exact match
+            case 2: skip = (val & mask) == 0; break;           // skip if none of masked bits set
+            case 3:                                            // skip if any match, then clear
+                skip = (val & mask) != 0;
+                if (skip) {
+                    regs.write(src_grp, src_sel, val & ~mask);
+                }
+                break;
         }
 
         if (skip) {
@@ -337,6 +399,36 @@ private:
             regs.MAR = (regs.MAR + disp * 16) & MASK_19;
         }
         return 5;
+    }
+
+    // ── DISPATCH: I/O Bus Control (MC=0000, MD=0001) ─────────────────────
+    int exec_dispatch(MicroFields f) {
+        // ME[7:4] encodes variant:
+        //   0 = LOCK + SKIP WHEN UNLOCKED
+        //   1 = WRITE (initiate I/O write)
+        //   2 = READ AND CLEAR (read I/O result, clear interrupt)
+        uint8_t variant = f.ME();
+        switch (variant) {
+            case 0: // DISPATCH LOCK SKIP WHEN UNLOCKED
+                // In emulation: bus is always available, so lock succeeds.
+                // Skip next instruction (HALT) since lock was acquired.
+                regs.MAR = (regs.MAR + 16) & MASK_19;
+                break;
+            case 1: // DISPATCH WRITE — initiate I/O write
+                // Stub: no actual I/O bus in emulator
+                break;
+            case 2: // DISPATCH READ AND CLEAR — read result, clear interrupt
+                // Clear the bus interrupt bit CC(1)
+                {
+                    uint8_t cc = regs.read(13, 2) & 0xF;
+                    cc &= ~0x02; // clear bit 1 (bus interrupt)
+                    regs.write(13, 2, cc);
+                }
+                break;
+            default:
+                break; // unknown variant — NOP
+        }
+        return 2;
     }
 
     // ── 2C: Scratchpad Move  /  2E: Cassette Control ————————————————————
