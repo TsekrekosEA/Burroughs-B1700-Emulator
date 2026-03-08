@@ -761,6 +761,47 @@ struct Assembler {
     }
 
 
+    // ── CLEAR reg [reg2 ...] ────────────────────────────────────────────
+    bool asm_clear(const std::vector<std::string>& t) {
+        for (size_t i = 1; i < t.size(); ++i) {
+            auto reg = resolve_register(t[i]);
+            if (!reg) { error("Unknown register: " + t[i]); return false; }
+            if (reg->width == 4) {
+                // 3C SET to 0: use NULL as source
+                emit(encode_1C({15, 1, 24}, {reg->group, reg->select, reg->width}));
+            } else {
+                // MOVE 0 TO reg via 8C literal (+ MOVE if select != 2)
+                emit_literal(*reg, 0);
+            }
+        }
+        return true;
+    }
+
+    // ── READ n BITS [REVERSE] TO reg [INC FA] [AND DEC FL] ─────────────
+    bool asm_read(const std::vector<std::string>& t) {
+        // READ n BITS [REVERSE] TO reg [INC FA [AND DEC FL]]
+        size_t idx = 1;
+        auto field_len = parse_number(t[idx++]);
+        if (!field_len) { error("READ: expected field length"); return false; }
+        if (idx < t.size() && t[idx] == "BITS") idx++;
+
+        bool reverse = false;
+        if (idx < t.size() && t[idx] == "REVERSE") { reverse = true; idx++; }
+
+        size_t to_pos = find_token(t, "TO", idx);
+        if (to_pos == std::string::npos) { error("READ: expected TO"); return false; }
+
+        std::string reg_name = t[to_pos + 1];
+        int reg_id = reg_to_7C_id(reg_name);
+        if (reg_id < 0) { error("READ: invalid register " + reg_name); return false; }
+
+        // Parse count variant
+        uint8_t count_var = parse_count_variant(t, to_pos + 2);
+
+        uint8_t flen = (*field_len > 24) ? 0 : static_cast<uint8_t>(*field_len);
+        emit(encode_7C(false, reg_id, reverse, flen, count_var));
+        return true;
+    }
 
     // ── WRITE (n) BITS FROM reg [INC FA] [AND DEC FL] ───────────────────
     bool asm_write(const std::vector<std::string>& t) {
