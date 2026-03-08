@@ -1039,6 +1039,86 @@ struct Assembler {
 
     // ── Condition Parsing ───────────────────────────────────────────────
 
+    struct Condition {
+        enum Type { BIT_TEST, MULTI_BIT } type;
+        uint8_t group;     // register group
+        uint8_t select;    // register select
+        uint8_t bit_pos;   // for BIT_TEST: bit within nibble (0-3)
+        uint8_t mask;      // for MULTI_BIT: 6C mask
+        bool negate;       // FALSE keyword (or NEQ flips)
+        bool valid;
+    };
+
+    Condition parse_condition(const std::vector<std::string>& t, size_t start,
+                              size_t end_pos) {
+        Condition c = {};
+        c.valid = false;
+        c.negate = false;
+
+        if (start >= end_pos) return c;
+
+        // Check for FALSE keyword at the end
+        if (end_pos > start && t[end_pos - 1] == "FALSE") {
+            c.negate = true;
+            end_pos--;
+        }
+
+        if (start >= end_pos) return c;
+
+        std::string first = t[start];
+
+        // ── Named conditions ────────────────────────────────────────────
+        if (first == "HALT-INTERRUPT") {
+            c.type = Condition::BIT_TEST;
+            c.group = 13; c.select = 2; c.bit_pos = 0; // CC(0)
+            c.valid = true;
+            return c;
+        }
+        if (first == "INTERRUPT") {
+            c.type = Condition::BIT_TEST;
+            c.group = 12; c.select = 3; c.bit_pos = 2; // XYST(2)
+            c.valid = true;
+            return c;
+        }
+
+        // ── T(n) bit test — map to Tx nibble ───────────────────────────
+        if (first == "T" && start + 1 < end_pos && t[start + 1] == "(") {
+            if (start + 3 <= end_pos) {
+                auto bit_num = parse_number(t[start + 2]);
+                if (bit_num) {
+                    uint8_t bn = *bit_num;
+                    uint8_t nibble_idx = bn / 4; // 5=TA, 4=TB, 3=TC, 2=TD, 1=TE, 0=TF
+                    uint8_t bit_within = bn % 4;
+                    static const uint8_t grp[] = {1, 1, 0, 0, 0, 0};
+                    static const uint8_t sel[] = {1, 0, 3, 2, 1, 0};
+                    if (nibble_idx < 6) {
+                        c.type = Condition::BIT_TEST;
+                        c.group = grp[nibble_idx];
+                        c.select = sel[nibble_idx];
+                        c.bit_pos = bit_within;
+                        c.valid = true;
+                    }
+                    return c;
+                }
+            }
+        }
+
+        // ── reg(bit) — direct nibble bit test ──────────────────────────
+        auto reg = resolve_register(first);
+        if (reg && reg->width == 4 && start + 1 < end_pos && t[start + 1] == "(") {
+            if (start + 3 <= end_pos) {
+                auto bit_num = parse_number(t[start + 2]);
+                if (bit_num) {
+                    c.type = Condition::BIT_TEST;
+                    c.group = reg->group;
+                    c.select = reg->select;
+                    c.bit_pos = *bit_num & 0x3;
+                    c.valid = true;
+                    return c;
+                }
+            }
+        }
+
         // ── Comparison patterns ────────────────────────────────────────
         if (reg && start + 2 <= end_pos) {
             std::string cmp = t[start + 1];
