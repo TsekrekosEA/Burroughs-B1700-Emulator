@@ -261,3 +261,26 @@ static void test_exec_literal_8bit() {
     else FAIL("T=0x%06X (X=0x%06X)", cpu.regs.T, cpu.regs.X);
 }
 
+static void test_exec_branch_forward() {
+    TEST("exec: 12C branch forward");
+    auto cpu = make_cpu();
+
+    // addr 0: branch forward +2
+    write_micro(cpu.mem, 0, 0xC002);
+
+    // addr 1: bad (should be skipped)
+    write_micro(cpu.mem, 1, 0x4FF2);  // would set T=0xFF
+
+    // addr 2: bad
+    write_micro(cpu.mem, 2, 0x4FF2);
+
+    // addr 3: HALT (target: word 0 + 1 + 2 = word 3)
+    write_micro(cpu.mem, 3, 0x0002);
+
+    cpu.regs.T = 0;
+    cpu.regs.MAR = 0;
+    cpu.run(100);
+    if (cpu.regs.halted && cpu.regs.T == 0) PASS();
+    else FAIL("halted=%d T=0x%X", cpu.regs.halted, cpu.regs.T);
+}
+
