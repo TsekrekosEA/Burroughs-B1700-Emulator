@@ -51,7 +51,17 @@ static const std::map<std::string, RegAddr> REGISTERS = {
     {"MAXS", {9, 0, 24}}, {"MAXM", {9, 1, 24}},
     // Group 10: stack / cassette
     {"TAS",  {10, 2, 24}}, {"U",    {10, 3, 16}}, {"TOPM", {10, 0, 24}},
-
+    // Group 11: CP
+    {"CP",   {11, 2, 8}},
+    // Group 12: condition pseudo-regs
+    {"BICN", {12, 0, 4}}, {"FLCN", {12, 1, 4}}, {"XYCN", {12, 2, 4}}, {"XYST", {12, 3, 4}},
+    // Group 13: control
+    {"CA",   {13, 0, 4}}, {"CB",   {13, 1, 4}}, {"CC",   {13, 2, 4}}, {"CD",   {13, 3, 4}},
+    // Group 14: I/O
+    {"CPU",  {14, 0, 4}}, {"READ", {14, 2, 24}}, {"CMND", {14, 3, 24}},
+    // Group 15: I/O and NULL
+    {"WRIT", {15, 0, 24}}, {"NULL", {15, 1, 24}}, {"DATA", {15, 2, 24}},
+};
 
 // Scratchpad symbolic names: S0..S15, S0A=left, S0B=right
 // Handled dynamically in resolve_register
