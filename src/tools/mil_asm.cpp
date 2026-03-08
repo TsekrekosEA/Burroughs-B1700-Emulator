@@ -518,6 +518,50 @@ struct Assembler {
 
         const std::string& first = t[0];
 
+        // ── DEFINE name _ value [value2 ...] ─────────────────────────────
+        if (first == "DEFINE") {
+            std::string name = t[1];
+            // Strip trailing underscore from name (handles OCR artifact
+            // where _ separator is fused with name, e.g.,
+            // "DEFINE EMV-READ-RESULT-STATUS_ H3640")
+            if (!name.empty() && name.back() == '_') {
+                name.pop_back();
+            }
+            if (t.size() >= 4 && t[2] == "_") {
+                // Join remaining tokens as value (handles "CC (0)" etc.)
+                std::string val = t[3];
+                for (size_t i = 4; i < t.size(); ++i) {
+                    val += " " + t[i];
+                }
+                defines[name] = val;
+            } else if (t.size() >= 3) {
+                std::string val = t[2];
+                for (size_t i = 3; i < t.size(); ++i) {
+                    val += " " + t[i];
+                }
+                defines[name] = val;
+            }
+            return true;
+        }
+
+        // ── Assembler directives ────────────────────────────────────────
+        if (first == "SEGMENT" || first == "OVERLAY" || first == "LOAD-MSMA"
+            || first == "PUNCH" || first == "STOP" || first == "BEGIN"
+            || first == "END" || first == "ELSE") {
+            return true; // skip directives
+        }
+
+        // ── NOP ─────────────────────────────────────────────────────────
+        if (first == "NOP") {
+            emit(0x0000);
+            return true;
+        }
+
+        // ── HALT ────────────────────────────────────────────────────────
+        if (first == "HALT") {
+            emit(0x0002);
+            return true;
+        }
 
         // ── EXIT (return = TAS → MAR) ───────────────────────────────────
         // Also handle OCR-garbled "E IT" → EXIT
