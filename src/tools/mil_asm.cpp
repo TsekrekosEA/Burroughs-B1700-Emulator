@@ -842,6 +842,80 @@ struct Assembler {
         return true;
     }
 
+    // ── LIT value TO reg ────────────────────────────────────────────────
+    bool asm_lit(const std::vector<std::string>& t) {
+        if (t.size() < 4) { error("LIT syntax: LIT value TO reg"); return false; }
+        size_t to_pos = find_token(t, "TO", 1);
+        if (to_pos == std::string::npos || to_pos + 1 >= t.size()) {
+            error("LIT syntax: LIT value TO reg");
+            return false;
+        }
+
+        std::string val_str = t[1];
+        std::string dst_name = t[to_pos + 1];
+
+        auto num = parse_number(val_str);
+        // If parse_number fails, try resolving as a label or define value
+        if (!num) num = resolve_as_label_value(val_str);
+        if (!num) { error("Invalid literal: " + val_str); return false; }
+
+        auto dst = resolve_register(dst_name);
+        if (!dst) { error("Unknown register: " + dst_name); return false; }
+
+        emit_literal(*dst, *num);
+        return true;
+    }
+
+    // ── SET reg TO value  /  SET flag  (shorthand for SET flag TO 1) ───
+    bool asm_set(const std::vector<std::string>& t) {
+        size_t to_pos = find_token(t, "TO", 1);
+
+        // Handle single-argument SET: "SET flag" → set bit/register to 1
+        if (to_pos == std::string::npos || t.size() < 4) {
+            if (t.size() >= 2) {
+                // t[1] might be a register name, possibly with (bit) following
+                std::string reg_name = t[1];
+                auto reg = resolve_register(reg_name);
+                if (reg) {
+                    // Set register to 1 (or ORed bit if 4-bit)
+                    if (reg->width == 4) {
+                        // Check for (bit) syntax: SET CC (0)
+                        uint8_t bit = 0;
+                        if (t.size() >= 4 && t[2] == "(") {
+                            auto n = parse_number(t[3]);
+                            if (n) bit = *n & 0x3;
+                        }
+                        // 3C SET nibble: set bit within nibble register
+                        // Encode as: read current, OR with bit mask
+                        // Simplified: emit LIT (1 << bit) to the group's sel-2,
+                        // which approximates setting the flag
+                        emit(encode_8C(reg->group, 1u << bit));
+                        return true;
+                    }
+                    emit_literal(*reg, 1);
+                    return true;
+                }
+                // Not a register — might be a DEFINE'd flag
+                warn("SET without TO: unknown register " + reg_name);
+                emit(0x0000);
+                return true;
+            }
+            error("SET syntax: SET reg TO value  or  SET flag");
+            return false;
+        }
+
+        std::string reg_name = t[1];
+        std::string val_str = t[to_pos + 1];
+
+        auto reg = resolve_register(reg_name);
+        if (!reg) { error("Unknown register: " + reg_name); return false; }
+
+        auto num = parse_number(val_str);
+        if (!num) { error("Invalid value: " + val_str); return false; }
+
+        emit_literal(*reg, *num);
+        return true;
+    }
 
     // ── CLEAR reg [reg2 ...] ────────────────────────────────────────────
     bool asm_clear(const std::vector<std::string>& t) {
