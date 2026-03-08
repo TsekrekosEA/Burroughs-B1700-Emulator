@@ -404,6 +404,39 @@ static void test_exec_exchange_doublepad() {
               cpu.regs.scratchpad[3].left, cpu.regs.scratchpad[3].right);
 }
 
+static void test_exec_bias() {
+    TEST("exec: 3E bias sets CPL from FL");
+    auto cpu = make_cpu();
+    cpu.regs.set_FB_field(0, 0, 16);  // FU=0, FT=0, FL=16
+    cpu.regs.set_CPL(0);
+
+    // 3E: MC=0, MD=0011=3, ME/MF encode variant
+    write_micro(cpu.mem, 0, 0x0301);
+    write_micro(cpu.mem, 1, 0x0002);
+
+    cpu.regs.MAR = 0;
+    cpu.run(100);
+
+    if (cpu.regs.CPL() == 16) PASS();
+    else FAIL("CPL=%d, expected 16", cpu.regs.CPL());
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// BCD TESTS
+// ══════════════════════════════════════════════════════════════════════════
+
+static void test_bcd_addition() {
+    TEST("registers: BCD addition 99+1=100");
+    RegisterFile r;
+    r.X = 0x99;    // 99 in BCD
+    r.Y = 0x01;    // 1 in BCD
+    r.set_CPU(1);  // BCD mode
+    r.set_CPL(12); // 3 BCD digits
+    uint32_t sum = r.read(6, 0);  // SUM
+    if (sum == 0x100) PASS();
+    else FAIL("SUM=0x%X, expected 0x100", sum);
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // MAIN
 // ══════════════════════════════════════════════════════════════════════════
