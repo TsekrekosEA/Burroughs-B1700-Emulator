@@ -1,4 +1,32 @@
-
+// Burroughs B1700 — MIL (Micro Implementation Language) Cross-Assembler
+// Assembles MIL source into 16-bit microinstruction binary images.
+//
+// Supports the core subset of MIL demonstrated in the cold start loader
+// and documented in the MIL Reference Manual (1973/1977):
+//
+//   DEFINE name _ value
+//   MOVE src TO dst              (1C register move)
+//   LIT value TO reg             (8C or 9C literal move)
+//   SET reg TO value             (3C 4-bit set, or 8C literal)
+//   CLEAR reg [reg2 ...]         (zero registers)
+//   READ n BITS [REVERSE] TO reg [INC FA] [AND DEC FL]      (7C read)
+//   WRITE n BITS FROM reg [INC FA] [AND DEC FL]             (7C write)
+//   SHIFT reg LEFT|RIGHT BY n BITS [TO destreg]             (4D/10C)
+//   ROTATE reg LEFT|RIGHT BY n BITS [TO destreg]            (4D/10C)
+//   EXTRACT n BITS FROM T(offset) TO reg                    (11C)
+//   IF cond THEN / GO TO label / ELSE / BEGIN / END
+//   SKIP WHEN cond [FALSE]
+//   CALL label                   (14C/15C)
+//   EXIT                         (return = TAS → MAR)
+//   GO TO label / JUMP TO label  (12C/13C)
+//   COUNT FA|FL UP|DOWN BY n
+//   INC reg BY n / DEC reg BY n
+//   XCH scratchpad F scratchpad  (7D exchange)
+//   DISPATCH LOCK|WRITE|READ
+//   CASSETTE START|STOP
+//   OVERLAY / SEGMENT / LOAD-MSMA / NOP / HALT
+//   .label (local) / LABEL (global)
+//   * comment
 
 #include <cstdint>
 #include <cstdio>
