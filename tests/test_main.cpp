@@ -92,14 +92,14 @@ static void test_memory_micro_fetch() {
 static void test_register_read_write_basic() {
     TEST("registers: basic X/Y/T/L read/write");
     RegisterFile r;
-    r.write(4, 0, 0x123456);  // X
-    r.write(4, 1, 0xABCDEF);  // Y
-    r.write(4, 2, 0x111111);  // T
-    r.write(4, 3, 0x222222);  // L
-    bool ok = r.read(4, 0) == 0x123456 &&
-              r.read(4, 1) == 0xABCDEF &&
-              r.read(4, 2) == 0x111111 &&
-              r.read(4, 3) == 0x222222;
+    r.write(2, 0, 0x123456);  // X
+    r.write(2, 1, 0xABCDEF);  // Y
+    r.write(2, 2, 0x111111);  // T
+    r.write(2, 3, 0x222222);  // L
+    bool ok = r.read(2, 0) == 0x123456 &&
+              r.read(2, 1) == 0xABCDEF &&
+              r.read(2, 2) == 0x111111 &&
+              r.read(2, 3) == 0x222222;
     if (ok) PASS(); else FAIL("register values mismatch");
 }
 
@@ -112,8 +112,8 @@ static void test_register_t_nibbles() {
               r.read(0, 1) == 0xE &&  // TB
               r.read(0, 2) == 0xD &&  // TC
               r.read(0, 3) == 0xC &&  // TD
-              r.read(1, 0) == 0xB &&  // TE
-              r.read(1, 1) == 0xA;    // TF
+              r.read(4, 0) == 0xB &&  // TE
+              r.read(5, 0) == 0xA;    // TF
     if (ok) PASS(); else FAIL("nibble values mismatch");
 }
 
@@ -123,7 +123,7 @@ static void test_register_t_nibble_write() {
     r.T = 0;
     r.write(0, 0, 0xA);  // TA
     r.write(0, 3, 0x5);  // TD
-    r.write(1, 1, 0x3);  // TF
+    r.write(5, 0, 0x3);  // TF
     if (r.T == 0xA00503) PASS();
     else FAIL("T = 0x%06X, expected 0xA00503", r.T);
 }
@@ -172,7 +172,7 @@ static void test_register_func_box_sum() {
     TEST("registers: function box SUM output");
     RegisterFile r;
     r.X = 100; r.Y = 200; r.set_CPL(24);
-    uint32_t sum = r.read(6, 0);  // SUM
+    uint32_t sum = r.read(3, 0);  // SUM
     if (sum == 300) PASS();
     else FAIL("SUM=%u, expected 300", sum);
 }
@@ -190,7 +190,7 @@ static void test_register_func_box_and_xor() {
     TEST("registers: function box AND, XOR");
     RegisterFile r;
     r.X = 0xFF00FF; r.Y = 0x0F0F0F; r.set_CPL(24);
-    uint32_t xany = r.read(6, 3);  // XANY = X AND Y
+    uint32_t xany = r.read(3, 3);  // XANY = X AND Y
     uint32_t xory = r.read(7, 3);  // XORY = X XOR Y
     bool ok = xany == 0x0F000F && xory == 0xF00FF0;
     if (ok) PASS();
@@ -200,8 +200,8 @@ static void test_register_func_box_and_xor() {
 static void test_register_null() {
     TEST("registers: NULL register reads zero");
     RegisterFile r;
-    r.write(15, 1, 0xABCDEF);  // write to NULL (discarded)
-    uint32_t v = r.read(15, 1); // read NULL → always 0
+    r.write(15, 3, 0xABCDEF);  // write to NULL (discarded)
+    uint32_t v = r.read(15, 3); // read NULL → always 0
     if (v == 0) PASS();
     else FAIL("NULL read = 0x%X", v);
 }
@@ -238,9 +238,10 @@ static void test_exec_register_move() {
     auto cpu = make_cpu();
     cpu.regs.X = 0x123456;
 
-    // 1C: src=X(grp4,sel0), dst=Y(grp4,sel1)
-    // MC=4, MD=0x00, ME=4, MF=(1<<2)|0=4
-    write_micro(cpu.mem, 0, 0x4044);
+    // 1C: src=X(grp2,sel0), dst=Y(grp2,sel1)
+    // encode_1C: MC=1, MD=dst_grp=2, ME[7:6]=dst_sel=1, ME[5:4]=src_sel=0, MF=src_grp=2
+    // = 0x1000 | 0x0200 | 0x0040 | 0x0000 | 0x0002 = 0x1242
+    write_micro(cpu.mem, 0, 0x1242);
     write_micro(cpu.mem, 1, 0x0002);  // HALT
     cpu.regs.MAR = 0;
     cpu.run(100);
@@ -249,16 +250,17 @@ static void test_exec_register_move() {
 }
 
 static void test_exec_literal_8bit() {
-    TEST("exec: 8C 8-bit literal to X");
+    TEST("exec: 8C 8-bit literal to T");
     auto cpu = make_cpu();
-    // 8C: MC=4(dst_grp=X), MD:ME literal=0x42, MF=0x02
-    write_micro(cpu.mem, 0, 0x4422);
+    // 8C: MC=8, MD=dst_grp=2 (group 2, always sel 2 = T), literal=0x42
+    // encode_8C(2, 0x42) = (8<<12) | (2<<8) | 0x42 = 0x8242
+    write_micro(cpu.mem, 0, 0x8242);
     write_micro(cpu.mem, 1, 0x0002);
     cpu.regs.MAR = 0;
     cpu.run(100);
-    // 8C writes to group=MC, select=2. Group 4, select 2 = T register.
+    // 8C writes to group 2, sel 2 = T register
     if (cpu.regs.T == 0x42) PASS();
-    else FAIL("T=0x%06X (X=0x%06X)", cpu.regs.T, cpu.regs.X);
+    else FAIL("T=0x%06X", cpu.regs.T);
 }
 
 static void test_exec_branch_forward() {
@@ -292,7 +294,8 @@ static void test_exec_call_return() {
     write_micro(cpu.mem, 0, 0xE003);
 
     // word 1: set T=0x42 (executed AFTER return)
-    write_micro(cpu.mem, 1, 0x4422);  // 8C to T
+    // 8C to group 2, sel 2 = T: encode_8C(2, 0x42) = 0x8242
+    write_micro(cpu.mem, 1, 0x8242);
 
     // word 2: HALT
     write_micro(cpu.mem, 2, 0x0002);
@@ -301,7 +304,10 @@ static void test_exec_call_return() {
     write_micro(cpu.mem, 3, 0x0000);
 
     // word 4: subroutine target (word 0+1+3 = word 4)
-    write_micro(cpu.mem, 4, 0xA850);
+    // TAS(grp11,sel2) → MAR(grp4,sel2)
+    // 1C: MC=1, MD=dst_grp=4, ME[7:6]=dst_sel=2=10, ME[5:4]=src_sel=2=10, MF=src_grp=11
+    // = 0x1000 | 0x0400 | 0x0080 | 0x0020 | 0x000B = 0x14AB
+    write_micro(cpu.mem, 4, 0x14AB);
 
     cpu.regs.MAR = 0;
     cpu.regs.T = 0;
@@ -340,36 +346,33 @@ static void test_exec_memory_write_read() {
 }
 
 static void test_exec_4bit_manipulate() {
-    TEST("exec: 3C SET TA → TD");
+    TEST("exec: 3C SET literal to TA");
     auto cpu = make_cpu();
 
-    cpu.regs.T = 0xA00000;  // TA=0xA
+    cpu.regs.T = 0;  // T starts at zero, TA=0
 
-    // 3C: src=TA(grp0,sel0), func=SET(0), dst=TD(grp0,sel3)
-    // MC=0, MD=(0<<2)|0=0, ME=0, MF=(3<<2)|1=0xD
-    // MF[1:0]=01 identifies 3C
-    write_micro(cpu.mem, 0, 0x000D);
+    // 3C SET TA(grp0,sel0) to literal 0xA
+    // encode_3C(0, 0, 0/*SET*/, 0xA) = (3<<12) | (0<<8) | (0<<7) | (0<<4) | 0xA = 0x300A
+    write_micro(cpu.mem, 0, 0x300A);
     write_micro(cpu.mem, 1, 0x0002);
 
     cpu.regs.MAR = 0;
     cpu.run(100);
 
-    uint8_t td = (cpu.regs.T >> 8) & 0xF;
-    if (td == 0xA) PASS();
-    else FAIL("TD=0x%X, expected 0xA", td);
+    uint8_t ta = (cpu.regs.T >> 20) & 0xF;
+    if (ta == 0xA) PASS();
+    else FAIL("TA=0x%X, expected 0xA", ta);
 }
 
 static void test_exec_shift_xy() {
-    TEST("exec: 4D shift X left by 4");
+    TEST("exec: 4D shift X right by 4");
     auto cpu = make_cpu();
-    cpu.regs.X = 0x000001;
-
     cpu.regs.X = 0x000100;
 
-    // Shift X right by 4: MD[11]=0,MD[10]=1,MD[9]=0,MD[8]=0 → MD=0100=4
-    // ME=4 (count), MF=0
-    // raw = 0000 0100 0100 0000 = 0x0440
-    write_micro(cpu.mem, 0, 0x0440);
+    // 4D: MC=0000, MD=0100 (identifies 4D)
+    // ME[7]=0(X), ME[6]=1(right), ME[5]=0(shift), bits[4:0]=4(count)
+    // raw = 0000_0100_0100_0100 = 0x0444
+    write_micro(cpu.mem, 0, 0x0444);
     write_micro(cpu.mem, 1, 0x0002);
 
     cpu.regs.MAR = 0;
@@ -432,7 +435,7 @@ static void test_bcd_addition() {
     r.Y = 0x01;    // 1 in BCD
     r.set_CPU(1);  // BCD mode
     r.set_CPL(12); // 3 BCD digits
-    uint32_t sum = r.read(6, 0);  // SUM
+    uint32_t sum = r.read(3, 0);  // SUM
     if (sum == 0x100) PASS();
     else FAIL("SUM=0x%X, expected 0x100", sum);
 }
