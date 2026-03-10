@@ -516,6 +516,93 @@ static TapeAnalysis analyze_tape(const std::string& path, bool verbose) {
     return ta;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// OUTPUT FORMATTERS
+// ══════════════════════════════════════════════════════════════════════════
+
+static void print_analysis_header(const TapeAnalysis& ta) {
+    std::printf("\n╔══════════════════════════════════════════════════════════════╗\n");
+    std::printf("║  BURROUGHS TAPE ANALYSIS                                    ║\n");
+    std::printf("╠══════════════════════════════════════════════════════════════╣\n");
+    std::printf("║  Path:    %-50s║\n", ta.tape_path.c_str());
+    if (!ta.volume_serial.empty())
+        std::printf("║  Volume:  %-50s║\n", ta.volume_serial.c_str());
+    if (!ta.volume_owner.empty())
+        std::printf("║  Owner:   %-50s║\n", ta.volume_owner.c_str());
+    std::printf("║  Files:   %-50zu║\n", ta.files.size());
+    std::printf("║  Records: %-50lu║\n", (unsigned long)ta.total_records);
+    if (ta.total_errors > 0)
+        std::printf("║  Errors:  %-50lu║\n", (unsigned long)ta.total_errors);
+
+    char size_buf[64];
+    if (ta.total_bytes > 1024*1024)
+        snprintf(size_buf, sizeof(size_buf), "%lu MB",
+                 (unsigned long)(ta.total_bytes / (1024*1024)));
+    else
+        snprintf(size_buf, sizeof(size_buf), "%lu KB",
+                 (unsigned long)(ta.total_bytes / 1024));
+    std::printf("║  Size:    %-50s║\n", size_buf);
+    std::printf("╚══════════════════════════════════════════════════════════════╝\n\n");
+}
+
+static void print_file_table(const TapeAnalysis& ta) {
+    std::printf("%-5s %-10s %-18s %-8s %-10s %s\n",
+                "File", "Class", "Name", "Records", "Bytes", "Description");
+    std::printf("%-5s %-10s %-18s %-8s %-10s %s\n",
+                "────", "─────────", "─────────────────", "───────", "─────────",
+                "────────────────────────────────");
+
+    for (const auto& af : ta.analyzed) {
+        std::printf("%-5d %-10s %-18.18s %-8zu %-10lu %s\n",
+                    af.file_number,
+                    file_class_name(af.classification),
+                    af.label_name.empty() ? "—" : af.label_name.c_str(),
+                    af.records ? af.records->size() : 0,
+                    (unsigned long)af.total_bytes,
+                    af.description.c_str());
+    }
+}
+
+static void print_data_files_only(const TapeAnalysis& ta) {
+    std::printf("\nData Files (excluding labels):\n");
+    std::printf("%-5s %-18s %-10s %-8s %-10s %-12s %s\n",
+                "File", "Name", "Class", "Records", "Bytes", "Rec Sizes", "First Record");
+    std::printf("%-5s %-18s %-10s %-8s %-10s %-12s %s\n",
+                "────", "─────────────────", "─────────", "───────", "─────────",
+                "───────────", "────────────────────────────");
+
+    for (const auto& af : ta.analyzed) {
+        if (af.classification == FileClass::LABEL) continue;
+        if (!af.records || af.records->empty()) continue;
+
+        uint32_t min_rec = UINT32_MAX, max_rec = 0;
+        for (const auto& r : *af.records) {
+            min_rec = std::min(min_rec, r.length);
+            max_rec = std::max(max_rec, r.length);
+        }
+
+        char rec_sizes[32];
+        if (min_rec == max_rec)
+            snprintf(rec_sizes, sizeof(rec_sizes), "%u", min_rec);
+        else
+            snprintf(rec_sizes, sizeof(rec_sizes), "%u-%u", min_rec, max_rec);
+
+        std::string first_text;
+        if (!af.records->front().data.empty()) {
+            size_t show_len = std::min<size_t>(af.records->front().data.size(), 28);
+            first_text = ebcdic_to_string(af.records->front().data.data(), show_len);
+        }
+
+        std::printf("%-5d %-18.18s %-10s %-8zu %-10lu %-12s %.28s\n",
+                    af.file_number,
+                    af.label_name.empty() ? "—" : af.label_name.c_str(),
+                    file_class_name(af.classification),
+                    af.records->size(),
+                    (unsigned long)af.total_bytes,
+                    rec_sizes,
+                    first_text.c_str());
+    }
+}
 
 // Backward-compatible simple list
 static void print_file_summary(const std::vector<TapeFile>& files) {
