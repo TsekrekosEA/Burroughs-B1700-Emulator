@@ -1,0 +1,10 @@
+; S-CALC Demo 1 — Basic Addition
+; Expected output: 300
+;
+; Demonstrates: PUSH, ADD, PRINT, HALT
+
+PUSH 100
+PUSH 200
+ADD
+PRINT
+HALT

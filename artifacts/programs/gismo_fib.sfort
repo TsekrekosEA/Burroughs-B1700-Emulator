@@ -1,0 +1,20 @@
+; S-FORT Gismo Demo — Fibonacci (first 5 numbers)
+; Outputs: 1, 1, 2, 3, 5
+; Runs concurrently with S-CALC under Gismo
+
+LOAD R0, 1      ; current = 1
+LOAD R1, 1      ; next = 1
+LOAD R2, 5      ; counter = 5
+
+LOOP:
+  PRINT R0
+  ADD R3, R0, R1
+  MOV R0, R1
+  MOV R1, R3
+  LOAD R3, 1
+  SUB R2, R2, R3
+  LOAD R3, 0
+  CMP R2, R3
+  BNE LOOP
+
+HALT

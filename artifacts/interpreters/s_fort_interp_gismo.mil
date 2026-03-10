@@ -1,0 +1,222 @@
+* ═══════════════════════════════════════════════════════════════════════
+* S-FORT INTERPRETER — GISMO MODE VARIANT
+* ═══════════════════════════════════════════════════════════════════════
+*
+* Identical to s_fort_interp.mil but with S_START = H6000 so that
+* S-FORT S-code lives at a different address from S-CALC S-code.
+* This allows Gismo to keep both programs in memory simultaneously.
+*
+* Memory layout in Gismo mode:
+*   Interpreter: overlaid at bit 0x0000 (swapped on each context switch)
+*   S-CALC S-code: bit 0x4000  (byte 0x800)
+*   S-FORT S-code: bit 0x6000  (byte 0xC00)
+*   S-CALC stack:  bit 0x8000  (byte 0x1000)
+*
+
+DEFINE S_START _ H6000
+
+* ═══════════════════════════════════════════════════════════════════════
+* INITIALIZATION
+* ═══════════════════════════════════════════════════════════════════════
+
+INIT        LIT S_START TO FA
+            CLEAR FB
+
+* ═══════════════════════════════════════════════════════════════════════
+* FETCH-DECODE-EXECUTE
+* ═══════════════════════════════════════════════════════════════════════
+
+FETCH       READ 8 BITS TO X INC FA
+
+            LIT 0 TO Y
+            IF X EQL Y GO TO DO_HALT
+
+            LIT 1 TO Y
+            IF X EQL Y GO TO DO_LOAD
+
+            LIT 2 TO Y
+            IF X EQL Y GO TO DO_ADD
+
+            LIT 3 TO Y
+            IF X EQL Y GO TO DO_SUB
+
+            LIT 4 TO Y
+            IF X EQL Y GO TO DO_MUL
+
+            LIT 5 TO Y
+            IF X EQL Y GO TO DO_MOV
+
+            LIT 6 TO Y
+            IF X EQL Y GO TO DO_CMP
+
+            LIT 7 TO Y
+            IF X EQL Y GO TO DO_BEQ
+
+            LIT 8 TO Y
+            IF X EQL Y GO TO DO_BNE
+
+            LIT 9 TO Y
+            IF X EQL Y GO TO DO_PRINT
+
+            GO TO DO_HALT
+
+* ═══════════════════════════════════════════════════════════════════════
+* REGISTER ACCESS SUBROUTINES
+* ═══════════════════════════════════════════════════════════════════════
+
+READ_REG    LIT 0 TO Y
+            IF X EQL Y GO TO .RR0
+            LIT 1 TO Y
+            IF X EQL Y GO TO .RR1
+            LIT 2 TO Y
+            IF X EQL Y GO TO .RR2
+            GO TO .RR3
+.RR0        MOVE S4A TO X
+            EXIT
+.RR1        MOVE S5A TO X
+            EXIT
+.RR2        MOVE S6A TO X
+            EXIT
+.RR3        MOVE S7A TO X
+            EXIT
+
+WRITE_REG   LIT 0 TO Y
+            IF X EQL Y GO TO .WR0
+            LIT 1 TO Y
+            IF X EQL Y GO TO .WR1
+            LIT 2 TO Y
+            IF X EQL Y GO TO .WR2
+            GO TO .WR3
+.WR0        MOVE S8A TO X
+            MOVE X TO S4A
+            EXIT
+.WR1        MOVE S8A TO X
+            MOVE X TO S5A
+            EXIT
+.WR2        MOVE S8A TO X
+            MOVE X TO S6A
+            EXIT
+.WR3        MOVE S8A TO X
+            MOVE X TO S7A
+            EXIT
+
+* ═══════════════════════════════════════════════════════════════════════
+* OPCODE IMPLEMENTATIONS
+* ═══════════════════════════════════════════════════════════════════════
+
+DO_HALT     HALT
+
+DO_LOAD     READ 8 BITS TO X INC FA
+            MOVE X TO S2A
+            READ 16 BITS TO X INC FA
+            MOVE X TO S8A
+            MOVE S2A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+DO_ADD      READ 8 BITS TO X INC FA
+            MOVE X TO S9A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S3A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE S3A TO Y
+            MOVE SUM TO T
+            MOVE T TO S8A
+            MOVE S9A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+DO_SUB      READ 8 BITS TO X INC FA
+            MOVE X TO S9A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S3A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO Y
+            MOVE S3A TO X
+            MOVE DIFF TO T
+            MOVE T TO S8A
+            MOVE S9A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+DO_MUL      READ 8 BITS TO X INC FA
+            MOVE X TO S9A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S2A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S2B
+            CLEAR X
+            MOVE X TO S3A
+.FMULLOOP   MOVE S2B TO X
+            CLEAR Y
+            IF X EQL Y GO TO .FMULDONE
+            MOVE S3A TO X
+            MOVE S2A TO Y
+            MOVE SUM TO T
+            MOVE T TO S3A
+            MOVE S2B TO X
+            LIT 1 TO Y
+            MOVE DIFF TO T
+            MOVE T TO S2B
+            GO TO .FMULLOOP
+.FMULDONE   MOVE S3A TO X
+            MOVE X TO S8A
+            MOVE S9A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+DO_MOV      READ 8 BITS TO X INC FA
+            MOVE X TO S2A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S8A
+            MOVE S2A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+DO_CMP      READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S2A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE S2A TO Y
+            IF X EQL Y GO TO .CMPEQ
+            LIT 1 TO X
+            MOVE X TO S1A
+            GO TO FETCH
+.CMPEQ      CLEAR X
+            MOVE X TO S1A
+            GO TO FETCH
+
+DO_BEQ      MOVE S1A TO X
+            CLEAR Y
+            IF X EQL Y GO TO .BEQ_TAKE
+            COUNT FA UP BY 16
+            GO TO FETCH
+.BEQ_TAKE   READ 16 BITS TO X INC FA
+            LIT S_START TO Y
+            MOVE SUM TO FA
+            GO TO FETCH
+
+DO_BNE      MOVE S1A TO X
+            CLEAR Y
+            IF X EQL Y GO TO .BNE_SKIP
+            READ 16 BITS TO X INC FA
+            LIT S_START TO Y
+            MOVE SUM TO FA
+            GO TO FETCH
+.BNE_SKIP   COUNT FA UP BY 16
+            GO TO FETCH
+
+DO_PRINT    READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MONITOR
+            GO TO FETCH
+
+

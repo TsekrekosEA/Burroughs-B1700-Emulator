@@ -1,0 +1,29 @@
+; S-FORT Demo — Fibonacci Numbers
+; Expected output: 1, 1, 2, 3, 5, 8, 13, 21, 34, 55
+;
+; R0 = current Fibonacci number (printed each iteration)
+; R1 = next Fibonacci number
+; R2 = loop counter (counts down from 10)
+; R3 = temp
+
+LOAD R0, 1      ; first Fib = 1
+LOAD R1, 1      ; second Fib = 1
+LOAD R2, 10     ; print 10 numbers
+
+LOOP:
+  PRINT R0        ; output current number
+
+  ADD R3, R0, R1  ; temp = current + next
+  MOV R0, R1      ; current = next
+  MOV R1, R3      ; next = temp
+
+  ; Decrement counter: R2 = R2 - 1
+  LOAD R3, 1
+  SUB R2, R2, R3
+
+  ; Check if counter reached zero
+  LOAD R3, 0
+  CMP R2, R3
+  BNE LOOP
+
+HALT

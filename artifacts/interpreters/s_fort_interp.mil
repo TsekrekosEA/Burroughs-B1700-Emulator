@@ -1,0 +1,264 @@
+* ═══════════════════════════════════════════════════════════════════════
+* S-FORT INTERPRETER — FORTRAN-like Register-Based S-Language
+* for the Burroughs B1700 Emulator
+* ═══════════════════════════════════════════════════════════════════════
+*
+* This is a microcode interpreter that implements S-FORT, a 3-address
+* register machine. It demonstrates a fundamentally different execution
+* model from S-CALC (stack-based) on the same B1700 hardware.
+*
+*   Opcode  Instruction        Encoding (bytes)
+*   0x00    HALT               [00]
+*   0x01    LOAD Rd, imm16     [01][Rd][hi][lo]
+*   0x02    ADD Rd, Rs1, Rs2   [02][Rd][Rs1][Rs2]
+*   0x03    SUB Rd, Rs1, Rs2   [03][Rd][Rs1][Rs2]
+*   0x04    MUL Rd, Rs1, Rs2   [04][Rd][Rs1][Rs2]
+*   0x05    MOV Rd, Rs         [05][Rd][Rs]
+*   0x06    CMP Rs1, Rs2       [06][Rs1][Rs2]
+*   0x07    BEQ target16       [07][hi][lo]      branch if equal
+*   0x08    BNE target16       [08][hi][lo]      branch if not equal
+*   0x09    PRINT Rs           [09][Rs]
+*
+* Memory Layout:
+*   Interpreter microcode:  bit address 0x0000
+*   S-FORT program (S-code): bit address 0x4000 (byte 0x800)
+*
+* Register Mapping (Scratchpad):
+*   S1A = compare flag (0=equal, 1=not-equal)
+*   S2  = MUL temp (left=multiplicand, right=counter)
+*   S3A = MUL accumulator
+*   S4A = R0     S5A = R1     S6A = R2     S7A = R3
+*   S8A = WRITE_REG temp value
+*   S9A = temp for dest register number
+*
+* Key difference from S-CALC: No XCH needed! FA:FB always points to
+* S-code. Registers live in scratchpad, accessed via jump tables.
+*
+
+DEFINE S_START _ H4000
+
+* ═══════════════════════════════════════════════════════════════════════
+* INITIALIZATION
+* ═══════════════════════════════════════════════════════════════════════
+
+INIT        LIT S_START TO FA
+            CLEAR FB
+
+* ═══════════════════════════════════════════════════════════════════════
+* FETCH-DECODE-EXECUTE
+* ═══════════════════════════════════════════════════════════════════════
+
+FETCH       READ 8 BITS TO X INC FA
+
+            LIT 0 TO Y
+            IF X EQL Y GO TO DO_HALT
+
+            LIT 1 TO Y
+            IF X EQL Y GO TO DO_LOAD
+
+            LIT 2 TO Y
+            IF X EQL Y GO TO DO_ADD
+
+            LIT 3 TO Y
+            IF X EQL Y GO TO DO_SUB
+
+            LIT 4 TO Y
+            IF X EQL Y GO TO DO_MUL
+
+            LIT 5 TO Y
+            IF X EQL Y GO TO DO_MOV
+
+            LIT 6 TO Y
+            IF X EQL Y GO TO DO_CMP
+
+            LIT 7 TO Y
+            IF X EQL Y GO TO DO_BEQ
+
+            LIT 8 TO Y
+            IF X EQL Y GO TO DO_BNE
+
+            LIT 9 TO Y
+            IF X EQL Y GO TO DO_PRINT
+
+            * Unknown opcode → halt
+            GO TO DO_HALT
+
+* ═══════════════════════════════════════════════════════════════════════
+* REGISTER ACCESS SUBROUTINES
+* ═══════════════════════════════════════════════════════════════════════
+
+* READ_REG: X=reg number (0-3) → X=reg value
+READ_REG    LIT 0 TO Y
+            IF X EQL Y GO TO .RR0
+            LIT 1 TO Y
+            IF X EQL Y GO TO .RR1
+            LIT 2 TO Y
+            IF X EQL Y GO TO .RR2
+            GO TO .RR3
+.RR0        MOVE S4A TO X
+            EXIT
+.RR1        MOVE S5A TO X
+            EXIT
+.RR2        MOVE S6A TO X
+            EXIT
+.RR3        MOVE S7A TO X
+            EXIT
+
+* WRITE_REG: X=reg number (0-3), S8A=value to write
+WRITE_REG   LIT 0 TO Y
+            IF X EQL Y GO TO .WR0
+            LIT 1 TO Y
+            IF X EQL Y GO TO .WR1
+            LIT 2 TO Y
+            IF X EQL Y GO TO .WR2
+            GO TO .WR3
+.WR0        MOVE S8A TO X
+            MOVE X TO S4A
+            EXIT
+.WR1        MOVE S8A TO X
+            MOVE X TO S5A
+            EXIT
+.WR2        MOVE S8A TO X
+            MOVE X TO S6A
+            EXIT
+.WR3        MOVE S8A TO X
+            MOVE X TO S7A
+            EXIT
+
+* ═══════════════════════════════════════════════════════════════════════
+* OPCODE IMPLEMENTATIONS
+* ═══════════════════════════════════════════════════════════════════════
+
+* ── HALT (0x00) ──────────────────────────────────────────────────────
+DO_HALT     HALT
+
+* ── LOAD Rd, imm16 (0x01) ───────────────────────────────────────────
+DO_LOAD     READ 8 BITS TO X INC FA
+            MOVE X TO S2A
+            READ 16 BITS TO X INC FA
+            MOVE X TO S8A
+            MOVE S2A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+* ── ADD Rd, Rs1, Rs2 (0x02) ─────────────────────────────────────────
+DO_ADD      READ 8 BITS TO X INC FA
+            MOVE X TO S9A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S3A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE S3A TO Y
+            MOVE SUM TO T
+            MOVE T TO S8A
+            MOVE S9A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+* ── SUB Rd, Rs1, Rs2 (0x03) ─────────────────────────────────────────
+DO_SUB      READ 8 BITS TO X INC FA
+            MOVE X TO S9A
+            * Read Rs1 (will be X in DIFF = X - Y)
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S3A
+            * Read Rs2 (will be Y in DIFF)
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            * X = Rs2 value, S3A = Rs1 value
+            MOVE X TO Y
+            MOVE S3A TO X
+            MOVE DIFF TO T
+            MOVE T TO S8A
+            MOVE S9A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+* ── MUL Rd, Rs1, Rs2 (0x04) ─────────────────────────────────────────
+DO_MUL      READ 8 BITS TO X INC FA
+            MOVE X TO S9A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S2A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S2B
+            CLEAR X
+            MOVE X TO S3A
+.FMULLOOP   MOVE S2B TO X
+            CLEAR Y
+            IF X EQL Y GO TO .FMULDONE
+            MOVE S3A TO X
+            MOVE S2A TO Y
+            MOVE SUM TO T
+            MOVE T TO S3A
+            MOVE S2B TO X
+            LIT 1 TO Y
+            MOVE DIFF TO T
+            MOVE T TO S2B
+            GO TO .FMULLOOP
+.FMULDONE   MOVE S3A TO X
+            MOVE X TO S8A
+            MOVE S9A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+* ── MOV Rd, Rs (0x05) ───────────────────────────────────────────────
+DO_MOV      READ 8 BITS TO X INC FA
+            MOVE X TO S2A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S8A
+            MOVE S2A TO X
+            CALL WRITE_REG
+            GO TO FETCH
+
+* ── CMP Rs1, Rs2 (0x06) ─────────────────────────────────────────────
+DO_CMP      READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MOVE X TO S2A
+            READ 8 BITS TO X INC FA
+            CALL READ_REG
+            * X = Rs2 value, S2A = Rs1 value
+            MOVE S2A TO Y
+            * Now X=Rs2, Y=Rs1. Test equality.
+            IF X EQL Y GO TO .CMPEQ
+            LIT 1 TO X
+            MOVE X TO S1A
+            GO TO FETCH
+.CMPEQ      CLEAR X
+            MOVE X TO S1A
+            GO TO FETCH
+
+* ── BEQ target16 (0x07) ─────────────────────────────────────────────
+DO_BEQ      MOVE S1A TO X
+            CLEAR Y
+            IF X EQL Y GO TO .BEQ_TAKE
+            * Not taken: skip 16-bit target
+            COUNT FA UP BY 16
+            GO TO FETCH
+.BEQ_TAKE   READ 16 BITS TO X INC FA
+            LIT S_START TO Y
+            MOVE SUM TO FA
+            GO TO FETCH
+
+* ── BNE target16 (0x08) ─────────────────────────────────────────────
+DO_BNE      MOVE S1A TO X
+            CLEAR Y
+            IF X EQL Y GO TO .BNE_SKIP
+            * Taken (not equal):
+            READ 16 BITS TO X INC FA
+            LIT S_START TO Y
+            MOVE SUM TO FA
+            GO TO FETCH
+.BNE_SKIP   COUNT FA UP BY 16
+            GO TO FETCH
+
+* ── PRINT Rs (0x09) ──────────────────────────────────────────────────
+DO_PRINT    READ 8 BITS TO X INC FA
+            CALL READ_REG
+            MONITOR
+            GO TO FETCH
+
+

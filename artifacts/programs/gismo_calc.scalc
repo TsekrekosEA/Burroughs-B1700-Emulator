@@ -1,0 +1,23 @@
+; S-CALC Gismo Demo — Cumulative Addition
+; Counts by 10: outputs 10, 20, 30, 40, 50
+; Uses DUP to keep accumulator on stack after PRINT
+
+PUSH 10
+DUP
+PRINT       ; 10, stack: [10]
+PUSH 10
+ADD
+DUP
+PRINT       ; 20, stack: [20]
+PUSH 10
+ADD
+DUP
+PRINT       ; 30, stack: [30]
+PUSH 10
+ADD
+DUP
+PRINT       ; 40, stack: [40]
+PUSH 10
+ADD
+PRINT       ; 50, stack: []
+HALT

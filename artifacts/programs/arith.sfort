@@ -1,0 +1,17 @@
+; S-FORT Demo 2 — Simple Arithmetic
+; Expected output: 15  (3 * 5 = 15)
+; Then: 10  (15 - 5 = 10)
+; Then: 25  (15 + 10 = 25)
+
+LOAD R0, 3
+LOAD R1, 5
+MUL R2, R0, R1    ; R2 = 3 * 5 = 15
+PRINT R2           ; output: 15
+
+SUB R3, R2, R1     ; R3 = 15 - 5 = 10
+PRINT R3           ; output: 10
+
+ADD R0, R2, R3     ; R0 = 15 + 10 = 25
+PRINT R0           ; output: 25
+
+HALT

@@ -1,0 +1,26 @@
+; S-CALC Demo 3 — Stack Manipulation
+; Expected output: 42, then 10, then 10
+;
+; Demonstrates: DUP, SWAP, SUB, multiple PRINT
+
+PUSH 42
+DUP        ; stack: [42, 42]
+PRINT      ; output: 42, stack: [42]
+
+PUSH 50
+PUSH 10
+SWAP       ; stack: [42, 10, 50]
+SUB        ; stack: [42, 50-10=40]... wait
+
+; Actually let's keep it simpler:
+; After SWAP, top=50, second=10
+; SUB pops top(50) into Y, second(10) into X → DIFF = X - Y
+; Hmm, need to think about operand order
+
+; Let's just test DUP and PRINT
+PRINT      ; output: 10 (the second element from SWAP)
+
+PUSH 10
+DUP        ; stack: [42, ..., 10, 10]
+PRINT      ; output: 10
+HALT

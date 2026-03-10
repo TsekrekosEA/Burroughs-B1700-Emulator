@@ -1,0 +1,182 @@
+* ═══════════════════════════════════════════════════════════════════════
+* S-CALC INTERPRETER — Stack-Based Calculator S-Language
+* for the Burroughs B1700 Emulator
+* ═══════════════════════════════════════════════════════════════════════
+*
+* This is a microcode interpreter that implements the S-CALC instruction
+* set on the B1700 processor.  S-CALC is a simple stack-based language:
+*
+*   Opcode  Instruction   Description
+*   0x00    HALT          Stop execution
+*   0x01    PUSH <24b>    Push 24-bit literal onto stack
+*   0x02    ADD           Pop 2, push sum
+*   0x03    SUB           Pop 2, push difference (2nd - top)
+*   0x04    MUL           Pop 2, push lo24 of product
+*   0x05    PRINT         Pop 1, output to console via MONITOR
+*   0x06    DUP           Duplicate top of stack
+*   0x07    SWAP          Swap top two stack elements
+*
+* Memory Layout:
+*   Interpreter microcode:  bit address 0x0000 (loaded by emulator)
+*   S-CALC program (S-code): bit address 0x4000 (byte 0x800)
+*   Data stack:             bit address 0x8000 (byte 0x1000), grows up
+*
+* Register Convention:
+*   FA:FB = current memory context, switched via XCH
+*   Scratchpad[0] = S-code context (FA:FB)
+*   Scratchpad[1] = Stack context (FA:FB)
+*   Scratchpad[2] = MUL: left=multiplicand, right=counter
+*   Scratchpad[3] = MUL: left=accumulator
+*   X, Y = operand registers for function box (SUM, DIFF)
+*   T = temporary
+*
+
+DEFINE S_START _ H4000
+DEFINE STK_START _ H8000
+
+* ═══════════════════════════════════════════════════════════════════════
+* INITIALIZATION — set up S-code and stack contexts in scratchpad
+* ═══════════════════════════════════════════════════════════════════════
+
+INIT        LIT S_START TO FA
+            CLEAR FB
+            STORE F INTO S0
+            LIT STK_START TO FA
+            CLEAR FB
+            STORE F INTO S1
+            * Load S-code context into FA:FB, save stack to pad[1]
+            XCH S0 F S1
+
+* ═══════════════════════════════════════════════════════════════════════
+* FETCH-DECODE-EXECUTE LOOP
+* ═══════════════════════════════════════════════════════════════════════
+* At loop entry: FA:FB = S-code context, pad[1] = stack context
+
+FETCH       READ 8 BITS TO X INC FA
+
+* ── Decode opcode in X ───────────────────────────────────────────────
+* X holds 8-bit opcode (0-7). LIT TO Y clobbers T but not X.
+
+            LIT 0 TO Y
+            IF X EQL Y GO TO DO_HALT
+
+            LIT 1 TO Y
+            IF X EQL Y GO TO DO_PUSH
+
+            LIT 2 TO Y
+            IF X EQL Y GO TO DO_ADD
+
+            LIT 3 TO Y
+            IF X EQL Y GO TO DO_SUB
+
+            LIT 4 TO Y
+            IF X EQL Y GO TO DO_MUL
+
+            LIT 5 TO Y
+            IF X EQL Y GO TO DO_PRINT
+
+            LIT 6 TO Y
+            IF X EQL Y GO TO DO_DUP
+
+            LIT 7 TO Y
+            IF X EQL Y GO TO DO_SWAP
+
+            * Unknown opcode → halt
+            GO TO DO_HALT
+
+* ═══════════════════════════════════════════════════════════════════════
+* OPCODE IMPLEMENTATIONS
+* ═══════════════════════════════════════════════════════════════════════
+
+* ── HALT (opcode 0x00) ───────────────────────────────────────────────
+DO_HALT     HALT
+
+* ── PUSH literal (opcode 0x01) ───────────────────────────────────────
+DO_PUSH     READ 24 BITS TO X INC FA
+            XCH S1 F S0
+            WRITE 24 BITS FROM X INC FA
+            XCH S0 F S1
+            GO TO FETCH
+
+* ── ADD (opcode 0x02) ────────────────────────────────────────────────
+DO_ADD      XCH S1 F S0
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO Y
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO X
+            MOVE SUM TO T
+            WRITE 24 BITS FROM T INC FA
+            XCH S0 F S1
+            GO TO FETCH
+
+* ── SUB (opcode 0x03) ────────────────────────────────────────────────
+DO_SUB      XCH S1 F S0
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO Y
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO X
+            MOVE DIFF TO T
+            WRITE 24 BITS FROM T INC FA
+            XCH S0 F S1
+            GO TO FETCH
+
+* ── MUL (opcode 0x04) ────────────────────────────────────────────────
+* Multiply via repeated addition. Uses scratchpad for state.
+DO_MUL      XCH S1 F S0
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO Y
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO X
+            * X = multiplicand, Y = multiplier
+            MOVE X TO S2A
+            MOVE Y TO S2B
+            CLEAR X
+            MOVE X TO S3A
+.MULLOOP    MOVE S2B TO X
+            CLEAR Y
+            IF X EQL Y GO TO .MULDONE
+            MOVE S3A TO X
+            MOVE S2A TO Y
+            MOVE SUM TO T
+            MOVE T TO S3A
+            * decrement counter
+            MOVE S2B TO X
+            LIT 1 TO Y
+            MOVE DIFF TO T
+            MOVE T TO S2B
+            GO TO .MULLOOP
+.MULDONE    MOVE S3A TO X
+            WRITE 24 BITS FROM X INC FA
+            XCH S0 F S1
+            GO TO FETCH
+
+* ── PRINT (opcode 0x05) ──────────────────────────────────────────────
+DO_PRINT    XCH S1 F S0
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO X
+            XCH S0 F S1
+            MONITOR
+            GO TO FETCH
+
+* ── DUP (opcode 0x06) ────────────────────────────────────────────────
+DO_DUP      XCH S1 F S0
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO X
+            WRITE 24 BITS FROM X INC FA
+            WRITE 24 BITS FROM X INC FA
+            XCH S0 F S1
+            GO TO FETCH
+
+* ── SWAP (opcode 0x07) ───────────────────────────────────────────────
+DO_SWAP     XCH S1 F S0
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO Y
+            COUNT FA DOWN BY 24
+            READ 24 BITS TO X
+            * X = second (lower), Y = top (higher)
+            * Write Y first (at bottom), then X (at top) = swapped
+            WRITE 24 BITS FROM Y INC FA
+            WRITE 24 BITS FROM X INC FA
+            XCH S0 F S1
+            GO TO FETCH
+
