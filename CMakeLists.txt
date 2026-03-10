@@ -19,7 +19,8 @@ target_link_libraries(b1700 PRIVATE b1700_core)
 # ── Tools ─────────────────────────────────────────────────────────────────
 add_executable(tape_reader src/tools/tape_reader.cpp)
 add_executable(mil_asm     src/tools/mil_asm.cpp)
-
+add_executable(scalc_asm   src/tools/scalc_asm.cpp)
+add_executable(sfort_asm   src/tools/sfort_asm.cpp)
 # ── Tests ─────────────────────────────────────────────────────────────────
 enable_testing()
 add_executable(b1700_tests tests/test_main.cpp)
