@@ -1,16 +1,225 @@
 // Burroughs B1700 Emulator — Main Entry Point
 #include "processor.h"
+#include "debugger.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 using namespace b1700;
+
+// ── Read a binary file into a vector ─────────────────────────────────
+static std::vector<uint8_t> read_binary(const char* path) {
+    FILE* fp = std::fopen(path, "rb");
+    if (!fp) return {};
+    std::fseek(fp, 0, SEEK_END);
+    long sz = std::ftell(fp);
+    std::fseek(fp, 0, SEEK_SET);
+    std::vector<uint8_t> buf(sz);
+    std::fread(buf.data(), 1, sz, fp);
+    std::fclose(fp);
+    return buf;
+}
+
+// ═════════════════════════════════════════════════════════════════════
+// GISMO: Interpreter Switching Demo — Phase 14
+// ═════════════════════════════════════════════════════════════════════
+//
+// Demonstrates the B1700's defining feature: dynamically swapping the
+// entire instruction set when switching between programs written in
+// different S-languages.
+//
+// Memory layout:
+//   Byte 0x0000: Interpreter microcode (overlaid on each switch)
+//   Byte 0x0800: S-CALC program (S-code at bit 0x4000)
+//   Byte 0x0C00: S-FORT program (S-code at bit 0x6000)
+//   Byte 0x1000: S-CALC data stack (bit 0x8000)
+
+struct ProcessState {
+    reg24_t X = 0, Y = 0, T = 0, L = 0, FA = 0, BR = 0, FB = 0, LR = 0;
+    uint32_t MAR = 0;
+    reg16_t M = 0, U = 0;
+    reg8_t CP = 0;
+    RegisterFile::ScratchpadWord scratchpad[16] = {};
+    std::array<reg24_t, RegisterFile::MAX_STACK> a_stack = {};
+    uint8_t stack_ptr = 0;
+    bool halted = false;
+    size_t total_cycles = 0;
+};
+
+static void save_state(Processor& cpu, ProcessState& s) {
+    s.X = cpu.regs.X;  s.Y = cpu.regs.Y;
+    s.T = cpu.regs.T;  s.L = cpu.regs.L;
+    s.FA = cpu.regs.FA; s.FB = cpu.regs.FB;
+    s.BR = cpu.regs.BR; s.LR = cpu.regs.LR;
+    s.MAR = cpu.regs.MAR;
+    s.M = cpu.regs.M;  s.U = cpu.regs.U;
+    s.CP = cpu.regs.CP;
+    for (int i = 0; i < 16; i++) s.scratchpad[i] = cpu.regs.scratchpad[i];
+    s.a_stack = cpu.regs.a_stack;
+    s.stack_ptr = cpu.regs.stack_ptr;
+    s.halted = cpu.regs.halted;
+    s.total_cycles += cpu.cycles;
+}
+
+static void restore_state(Processor& cpu, const ProcessState& s) {
+    cpu.regs.X = s.X;  cpu.regs.Y = s.Y;
+    cpu.regs.T = s.T;  cpu.regs.L = s.L;
+    cpu.regs.FA = s.FA; cpu.regs.FB = s.FB;
+    cpu.regs.BR = s.BR; cpu.regs.LR = s.LR;
+    cpu.regs.MAR = s.MAR;
+    cpu.regs.M = s.M;  cpu.regs.U = s.U;
+    cpu.regs.CP = s.CP;
+    for (int i = 0; i < 16; i++) cpu.regs.scratchpad[i] = s.scratchpad[i];
+    cpu.regs.a_stack = s.a_stack;
+    cpu.regs.stack_ptr = s.stack_ptr;
+    cpu.regs.halted = s.halted;
+    cpu.cycles = 0;
+}
+
+static int run_gismo(const char* scalc_interp_path, const char* sfort_interp_path,
+                     const char* scalc_scode_path, const char* sfort_scode_path,
+                     size_t quantum, bool trace) {
+    auto scalc_interp = read_binary(scalc_interp_path);
+    auto sfort_interp = read_binary(sfort_interp_path);
+    auto scalc_scode  = read_binary(scalc_scode_path);
+    auto sfort_scode  = read_binary(sfort_scode_path);
+
+    if (scalc_interp.empty() || sfort_interp.empty() ||
+        scalc_scode.empty()  || sfort_scode.empty()) {
+        std::fputs("Error: could not read one or more Gismo input files\n", stderr);
+        return 1;
+    }
+
+    ProcessorConfig cfg;
+    cfg.s_memory_bytes = 64 * 1024;
+    Processor cpu(cfg);
+    cpu.trace_enabled = trace;
+
+    // Load both S-code programs (they stay in memory at all times)
+    cpu.mem.load_bytes(0x800, scalc_scode.data(), scalc_scode.size());   // bit 0x4000
+    cpu.mem.load_bytes(0xC00, sfort_scode.data(), sfort_scode.size());   // bit 0x6000
+
+    // MONITOR handler tagged with current process name
+    const char* current_proc = "???";
+    cpu.on_monitor = [&current_proc](uint32_t val) {
+        std::printf("  [%s] PRINT: %u\n", current_proc, val);
+    };
+
+    auto load_interp = [&](const std::vector<uint8_t>& interp) {
+        // Clear micro-store region, then load interpreter
+        for (size_t i = 0; i < 0x400; i++) cpu.mem.write_byte(i, 0);
+        cpu.mem.load_bytes(0, interp.data(), interp.size());
+    };
+
+    ProcessState proc_a, proc_b;
+    int switches = 0;
+
+    // ── Banner ──────────────────────────────────────────────────────
+    std::puts("");
+    std::puts("╔═══════════════════════════════════════════════════════════════╗");
+    std::puts("║       GISMO — Generalized Interpreter for S-Machine         ║");
+    std::puts("║       Operations  (Interpreter Switching Demo)               ║");
+    std::puts("╠═══════════════════════════════════════════════════════════════╣");
+    std::puts("║  Process A: S-CALC (stack machine)       S-code @ 0x4000    ║");
+    std::puts("║  Process B: S-FORT (register machine)    S-code @ 0x6000    ║");
+    std::puts("║  Quantum per switch: variable cycles                        ║");
+    std::puts("║  Microcode: overlaid at address 0 on each context switch    ║");
+    std::puts("╚═══════════════════════════════════════════════════════════════╝");
+    std::printf("  S-CALC interp: %zu bytes from %s\n", scalc_interp.size(), scalc_interp_path);
+    std::printf("  S-FORT interp: %zu bytes from %s\n", sfort_interp.size(), sfort_interp_path);
+    std::printf("  S-CALC S-code: %zu bytes from %s\n", scalc_scode.size(), scalc_scode_path);
+    std::printf("  S-FORT S-code: %zu bytes from %s\n", sfort_scode.size(), sfort_scode_path);
+    std::printf("  Quantum: %zu cycles\n\n", quantum);
+
+    // ── Phase 1: Initialize S-CALC (run INIT code) ─────────────────
+    load_interp(scalc_interp);
+    cpu.regs = RegisterFile();
+    cpu.regs.MAR = 0;
+    cpu.regs.halted = false;
+    cpu.cycles = 0;
+    current_proc = "S-CALC";
+    std::puts("── GISMO: Initializing S-CALC interpreter... ──");
+    cpu.run(quantum);
+    save_state(cpu, proc_a);
+    std::printf("   S-CALC: %zu cycles, MAR=%05X FA=%06X %s\n",
+                cpu.cycles, proc_a.MAR, proc_a.FA,
+                proc_a.halted ? "[HALTED]" : "");
+
+    // ── Phase 2: Initialize S-FORT (run INIT code) ─────────────────
+    load_interp(sfort_interp);
+    cpu.regs = RegisterFile();
+    cpu.regs.MAR = 0;
+    cpu.regs.halted = false;
+    cpu.cycles = 0;
+    current_proc = "S-FORT";
+    std::puts("── GISMO: Initializing S-FORT interpreter... ──");
+    cpu.run(quantum);
+    save_state(cpu, proc_b);
+    std::printf("   S-FORT: %zu cycles, MAR=%05X FA=%06X %s\n",
+                cpu.cycles, proc_b.MAR, proc_b.FA,
+                proc_b.halted ? "[HALTED]" : "");
+    std::puts("");
+
+    // ── Phase 3: Round-robin switching ──────────────────────────────
+    while (!proc_a.halted || !proc_b.halted) {
+        if (!proc_a.halted) {
+            switches++;
+            load_interp(scalc_interp);
+            restore_state(cpu, proc_a);
+            current_proc = "S-CALC";
+            std::printf("═══ GISMO switch #%d → S-CALC  (MAR=%05X FA=%06X) ═══\n",
+                        switches, proc_a.MAR, proc_a.FA);
+            cpu.run(quantum);
+            save_state(cpu, proc_a);
+            if (proc_a.halted)
+                std::printf("   *** S-CALC program HALTED after %zu total cycles ***\n",
+                            proc_a.total_cycles);
+        }
+
+        if (!proc_b.halted) {
+            switches++;
+            load_interp(sfort_interp);
+            restore_state(cpu, proc_b);
+            current_proc = "S-FORT";
+            std::printf("═══ GISMO switch #%d → S-FORT  (MAR=%05X FA=%06X) ═══\n",
+                        switches, proc_b.MAR, proc_b.FA);
+            cpu.run(quantum);
+            save_state(cpu, proc_b);
+            if (proc_b.halted)
+                std::printf("   *** S-FORT program HALTED after %zu total cycles ***\n",
+                            proc_b.total_cycles);
+        }
+    }
+
+    // ── Summary ─────────────────────────────────────────────────────
+    std::puts("");
+    std::puts("╔═══════════════════════════════════════════════════════════════╗");
+    std::puts("║                    GISMO — Run Complete                      ║");
+    std::puts("╠═══════════════════════════════════════════════════════════════╣");
+    std::printf("║  Context switches:   %-6d                                 ║\n", switches);
+    std::printf("║  S-CALC total cycles: %-8zu                               ║\n", proc_a.total_cycles);
+    std::printf("║  S-FORT total cycles: %-8zu                               ║\n", proc_b.total_cycles);
+    std::puts("║                                                             ║");
+    std::puts("║  The same physical CPU executed TWO different instruction    ║");
+    std::puts("║  sets — stack-based S-CALC and register-based S-FORT —      ║");
+    std::puts("║  by swapping microcode interpreters at each context switch.  ║");
+    std::puts("╚═══════════════════════════════════════════════════════════════╝");
+
+    return 0;
+}
 
 static void print_usage() {
     std::puts("Usage: b1700 [options]");
     std::puts("  --trace        Enable execution trace");
+    std::puts("  --debug        Start interactive debugger");
     std::puts("  --mem <KB>     Set memory size in kilobytes (default: 64)");
     std::puts("  --load <file>  Load binary file into memory at address 0");
+    std::puts("  --interp <file> Load interpreter microcode at bit address 0");
+    std::puts("  --scode <file>  Load S-code program at bit address 0x4000");
+    std::puts("  --gismo <4 files> Run Gismo interpreter switching demo");
+    std::puts("                    (scalc_interp sfort_interp scalc_scode sfort_scode)");
+    std::puts("  --quantum <N>  Gismo time slice in cycles (default: 300)");
     std::puts("  --run          Start execution at address 0");
     std::puts("  --test         Run built-in self-test");
 }
@@ -311,15 +520,32 @@ int main(int argc, char* argv[]) {
     bool do_trace = false;
     bool do_test  = false;
     bool do_run   = false;
+    bool do_debug = false;
+    bool do_gismo = false;
     size_t mem_kb = 64;
-    const char* load_file = nullptr;
+    size_t quantum = 300;
+    const char* load_file   = nullptr;
+    const char* interp_file = nullptr;
+    const char* scode_file  = nullptr;
+    const char* gismo_files[4] = {};  // scalc_interp, sfort_interp, scalc_scode, sfort_scode
 
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--trace") == 0) { do_trace = true; }
         else if (std::strcmp(argv[i], "--test") == 0)  { do_test = true; }
         else if (std::strcmp(argv[i], "--run") == 0)   { do_run = true; }
-        else if (std::strcmp(argv[i], "--mem") == 0 && i+1 < argc)  { mem_kb = std::atoi(argv[++i]); }
-        else if (std::strcmp(argv[i], "--load") == 0 && i+1 < argc) { load_file = argv[++i]; }
+        else if (std::strcmp(argv[i], "--debug") == 0)  { do_debug = true; }
+        else if (std::strcmp(argv[i], "--mem") == 0 && i+1 < argc)    { mem_kb = std::atoi(argv[++i]); }
+        else if (std::strcmp(argv[i], "--quantum") == 0 && i+1 < argc) { quantum = std::atoi(argv[++i]); }
+        else if (std::strcmp(argv[i], "--load") == 0 && i+1 < argc)   { load_file = argv[++i]; }
+        else if (std::strcmp(argv[i], "--interp") == 0 && i+1 < argc) { interp_file = argv[++i]; }
+        else if (std::strcmp(argv[i], "--scode") == 0 && i+1 < argc)  { scode_file = argv[++i]; }
+        else if (std::strcmp(argv[i], "--gismo") == 0 && i+4 < argc) {
+            do_gismo = true;
+            gismo_files[0] = argv[++i];
+            gismo_files[1] = argv[++i];
+            gismo_files[2] = argv[++i];
+            gismo_files[3] = argv[++i];
+        }
         else if (std::strcmp(argv[i], "--help") == 0 || std::strcmp(argv[i], "-h") == 0) {
             print_usage(); return 0;
         }
@@ -330,7 +556,13 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 
-    if (!load_file && !do_run) {
+    if (do_gismo) {
+        return run_gismo(gismo_files[0], gismo_files[1],
+                         gismo_files[2], gismo_files[3],
+                         quantum, do_trace);
+    }
+
+    if (!load_file && !interp_file && !do_run && !do_debug) {
         print_usage();
         return 0;
     }
@@ -380,6 +612,53 @@ int main(int argc, char* argv[]) {
             std::printf("Loaded %ld bytes from %s\n", sz, load_file);
         }
         std::fclose(fp);
+    }
+
+    // ── S-language loader: --interp loads microcode at 0, --scode at 0x4000 ──
+    auto load_binary = [&](const char* path, size_t byte_offset, const char* desc) -> bool {
+        FILE* fp = std::fopen(path, "rb");
+        if (!fp) {
+            std::fprintf(stderr, "Error: cannot open %s (%s)\n", path, desc);
+            return false;
+        }
+        std::fseek(fp, 0, SEEK_END);
+        long sz = std::ftell(fp);
+        std::fseek(fp, 0, SEEK_SET);
+        if (sz > 0 && byte_offset + static_cast<size_t>(sz) <= cfg.s_memory_bytes) {
+            std::vector<uint8_t> buf(sz);
+            std::fread(buf.data(), 1, sz, fp);
+            cpu.mem.load_bytes(byte_offset, buf.data(), sz);
+            std::printf("  %s: %ld bytes at byte 0x%04zX (bit 0x%04zX) from %s\n",
+                        desc, sz, byte_offset, byte_offset * 8, path);
+        } else {
+            std::fprintf(stderr, "Error: %s too large or offset out of range\n", path);
+            std::fclose(fp);
+            return false;
+        }
+        std::fclose(fp);
+        return true;
+    };
+
+    if (interp_file) {
+        std::puts("Loading S-language interpreter + program:");
+        if (!load_binary(interp_file, 0, "Interpreter")) return 1;
+        if (scode_file) {
+            // S-code loaded at byte 0x800 = bit address 0x4000
+            if (!load_binary(scode_file, 0x800, "S-code")) return 1;
+        }
+        // Install S-language MONITOR handler (decimal output)
+        cpu.on_monitor = [](uint32_t val) {
+            std::printf("[MONITOR] PRINT: %u (0x%06X)\n", val, val);
+        };
+        // Auto-run if --run not specified
+        if (!do_run && !do_debug) do_run = true;
+    }
+
+    if (do_debug) {
+        cpu.regs.MAR = 0;
+        Debugger dbg(cpu);
+        dbg.run();
+        return 0;
     }
 
     if (do_run) {
