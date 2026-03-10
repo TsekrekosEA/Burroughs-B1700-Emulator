@@ -1,0 +1,59 @@
+* ═══════════════════════════════════════════════════════════════════════
+* B1700 MIL Test Program 6 — Conditional Execution
+* Tests: IF...THEN, IF...GO TO, SKIP WHEN, X/Y comparisons, FL test
+* ═══════════════════════════════════════════════════════════════════════
+*
+* Seven sub-tests exercise conditional skip and branch.
+* Expected result: T = H000042 (0x42 = 66 decimal, all tests passed)
+*
+* Test 1: IF X EQL Y THEN  (true → execute GO TO)
+* Test 2: IF X NEQ Y THEN  (false → skip GO TO .FAIL)
+* Test 3: IF X GTR Y GO TO (false → don't branch to .FAIL)
+* Test 4: IF X GTR Y GO TO (true → branch to .T5)
+* Test 5: SKIP WHEN X LSS Y (false → don't skip GO TO .T6)
+* Test 6: SKIP WHEN FL EQL 0 (true → skip GO TO .FAIL)
+* Test 7: SKIP WHEN FL EQL 0 FALSE (FL=0 → false → don't skip GO TO)
+*
+
+* ── Test 1: IF X EQL Y THEN (true case) ──────────────────────────────
+START       LIT 5 TO X                   * X ← 5 (clobbers T)
+            LIT 5 TO Y                   * Y ← 5 (clobbers T) — X = Y
+            IF X EQL Y THEN
+            GO TO .T2                    * THEN body: should execute
+            GO TO .FAIL                  * only if THEN was skipped
+
+* ── Test 2: IF X NEQ Y THEN (false case, X=5, Y=5) ──────────────────
+.T2         IF X NEQ Y THEN
+            GO TO .FAIL                  * should be skipped (X = Y)
+
+* ── Test 3: IF X GTR Y GO TO (false case, X=5, Y=5) ─────────────────
+            IF X GTR Y GO TO .FAIL       * X not > Y → don't branch
+
+* ── Test 4: IF X GTR Y GO TO (true case) ─────────────────────────────
+            LIT 10 TO X                  * X ← 10 (clobbers T), Y still 5
+            IF X GTR Y GO TO .T5         * X > Y → should branch
+            GO TO .FAIL                  * only if branch was skipped
+
+* ── Test 5: SKIP WHEN X LSS Y (false case, X=10, Y=5) ───────────────
+.T5         SKIP WHEN X LSS Y            * X not < Y → don't skip
+            GO TO .T6                    * should execute (not skipped)
+            GO TO .FAIL                  * only if GO TO was skipped
+
+* ── Test 6: SKIP WHEN FL EQL 0 (true case) ───────────────────────────
+.T6         CLEAR FL                     * FL ← 0
+            SKIP WHEN FL EQL 0           * FL = 0 → skip next
+            GO TO .FAIL                  * should be skipped
+
+* ── Test 7: SKIP WHEN FL EQL 0 FALSE (FL=0 → should NOT skip) ────────
+            SKIP WHEN FL EQL 0 FALSE     * FL=0, EQL true, FALSE → don't skip
+            GO TO .WIN                   * should execute
+            GO TO .FAIL                  * only if GO TO was skipped
+
+* ── All tests passed ─────────────────────────────────────────────────
+.WIN        LIT H42 TO T                 * T ← 0x42 (success marker)
+            HALT
+
+* ── Any test failed ──────────────────────────────────────────────────
+.FAIL       LIT HFF TO T                 * T ← 0xFF (failure marker)
+            HALT
+
