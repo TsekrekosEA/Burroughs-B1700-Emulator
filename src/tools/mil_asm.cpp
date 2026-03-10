@@ -536,7 +536,7 @@ struct Assembler {
                     "ROTATE", "EXTRACT", "GO", "CALL", "EXIT", "SKIP", "COUNT",
                     "INC", "DEC", "XCH", "LIT", "NOP", "RESET", "IF", "OVERLAY",
                     "SEGMENT", "LOAD", "STORE", "DISPATCH", "ADD", "CASSETTE",
-                    "BEGIN", "END", "ELSE", "HALT"
+                    "BEGIN", "END", "ELSE", "HALT", "MONITOR"
                 };
                 treat_as_label = !keywords.count(first_word) &&
                                  first_word.find('-') != std::string::npos;
@@ -716,6 +716,13 @@ struct Assembler {
         // ── HALT ────────────────────────────────────────────────────────
         if (first == "HALT") {
             emit(0x0002);
+            return true;
+        }
+
+        // ── MONITOR ─────────────────────────────────────────────────────
+        // 9D: MC=0000 MD=1001 ME=0000 MF=0000 → outputs X register
+        if (first == "MONITOR") {
+            emit(0x0900);
             return true;
         }
 
@@ -1551,7 +1558,8 @@ struct Assembler {
                 // Exact equality check (mask is the value to compare)
                 if (is_goto) {
                     if (!cond.negate) {
-                        //just emit two 4C/5C
+                        // I give up here, might try and re-implement exact equality checks with multiple 4C/5C tests in the future.
+                        // for exact equality, just emit two 4C/5C
                         // bit tests if possible, or warn. This case doesn't
                         // appear in the cold start loader, so just warn.
                         warn("Exact equality GO TO not fully supported");
