@@ -340,6 +340,30 @@ int main(int argc, char* argv[]) {
     Processor cpu(cfg);
     cpu.trace_enabled = do_trace;
 
+    // Install an EMVHostControl at port 2 (the standard EMV port/channel
+    // used by the cold start loader: T = 0x20 → port 2, channel 0).
+    // This provides the minimal EMV protocol responses so the CSL can
+    // progress through its initialization and M-load sequence.
+    auto emv = std::make_unique<EMVHostControl>(20);
+
+    // Provide minimal M-load card deck:
+    //   Card 1: "//M" header card (EBCDIC: / = 0x61, M = 0xD4)
+    //   Card 2: "/EN" end sentinel (EBCDIC: / = 0x61, E = 0xC5, N = 0xD5)
+    // This tells the CSL "M-load with zero data cards" — it will proceed
+    // to the OVERLAY phase immediately.
+    std::vector<std::vector<uint8_t>> cards;
+    // Card 1: //M header (80-column card image, first 3 bytes = "//M")
+    std::vector<uint8_t> mheader(80, 0x40);  // pad with EBCDIC spaces
+    mheader[0] = 0x61; mheader[1] = 0x61; mheader[2] = 0xD4; // "//M"
+    cards.push_back(std::move(mheader));
+    // Card 2: /EN sentinel
+    std::vector<uint8_t> en_card(80, 0x40);
+    en_card[0] = 0x61; en_card[1] = 0xC5; en_card[2] = 0xD5; // "/EN"
+    cards.push_back(std::move(en_card));
+    emv->load_cards(std::move(cards));
+
+    cpu.io.install(2, std::move(emv));
+
     if (load_file) {
         FILE* fp = std::fopen(load_file, "rb");
         if (!fp) {
