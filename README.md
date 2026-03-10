@@ -16,6 +16,8 @@
 
 ## What Is This?
 
+![Front_Panel](artifacts/images/Burroughs_B1700_Front-panel.jpg)
+
 In 1972, Burroughs Corporation built a computer with no fixed instruction set. Instead of hardwiring instructions like ADD or JUMP into silicon, the B1700 loaded microcode interpreters from software. One for COBOL, another for FORTRAN, another for RPG. When the operating system switched between programs, it replaced the entire instruction set of the CPU.
 
 This project is a faithful emulator of that machine, built from primary sources: the 429-page Field Engineering Technical Manual, Wilner's original design papers, and surviving microcode artifacts from [bitsavers.org](http://bitsavers.org/pdf/burroughs/B1700/).
@@ -403,6 +405,7 @@ System halted at cycle 13660  MAR=0x00070
 - Al Kossow for his tireless work preserving computing history at bitsavers
 - The original Burroughs Corporation engineers at the Santa Barbara Plant, Goleta, CA
 - Claude Opus. This was a hobby project, but the AI helped it run along smoothly by rewriting messy comments, formatting my documents, creating an awesome working debugger and introducing a bunch of bugs to the MIL assembler that I had to spend hours fixing.
+- Bill Degnan for the only high quality image of the B1700 Computer I could find, showing the front panel of the machine.
 
 ### References
 
