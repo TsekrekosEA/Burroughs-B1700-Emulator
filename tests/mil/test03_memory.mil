@@ -15,7 +15,7 @@ DEFINE DATA_ADDR _ H001000
 START       CLEAR FA                      * FA ← 0
             LIT H10 TO FA                 * FA ← 0x10 (bit addr 16)
             LIT HAB TO X                  * X ← 0xAB
-            WRITE 8 BITS FROM X           * write X[7:0] to memory at FA
+            WRITE 8 BITS FROM X INC FA    * write X[7:0] to memory at FA, FA+=8
             LIT HCD TO X                  * X ← 0xCD
             WRITE 8 BITS FROM X INC FA    * write, inc FA by 8
             LIT HEF TO X                  * X ← 0xEF

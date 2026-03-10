@@ -3,9 +3,9 @@
 * Tests: LIT, MOVE, CLEAR, HALT
 * ═══════════════════════════════════════════════════════════════════════
 *
-* Expected result: T = H00002A (42 decimal)
-*                  Y = H00002A (copy of T)
-*                  X = H0000FF (255 literal)
+* Expected result: X = H0000FF (255 literal)
+*                  Y = H00002A (copy of T before X load)
+*                  T = 0 (clobbered: CLEAR L uses 8C which writes 0 to T)
 *                  L = 0 (cleared)
 *
 

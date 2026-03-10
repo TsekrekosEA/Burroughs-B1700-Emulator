@@ -3,9 +3,9 @@
 * Tests: GO TO, CALL, EXIT, labels
 * ═══════════════════════════════════════════════════════════════════════
 *
-* Expected result: T = H000003 (set in subroutine)
-*                  X = H000001 (set before call)
+* Expected result: X = H000001 (set before call)
 *                  Y = H000002 (set after call return)
+*                  T = H000002 (clobbered: LIT 2 TO Y uses 8C→T then MOVE)
 *
 
 START       LIT 1 TO X                   * X ← 1
