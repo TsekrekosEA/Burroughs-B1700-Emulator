@@ -23,6 +23,10 @@ public:
     // Callback for halt
     std::function<void()> on_halt;
 
+    // Callback for MONITOR instruction (9D) — used for S-language output
+    // Called with current X register value.  Default: print to stdout.
+    std::function<void(uint32_t)> on_monitor;
+
     explicit Processor(const ProcessorConfig& cfg)
         : mem(cfg.s_memory_bytes)
     {
@@ -145,7 +149,14 @@ private:
                 case 0x6: return exec_count_or_carry(f);
                 case 0x7: return exec_exchange_doublepad(f);
                 case 0x8: return exec_scratchpad_relate(f);
-                case 0x9: return 2;  // 9D Monitor — NOP
+                case 0x9: // 9D Monitor — S-language output
+                    if (on_monitor) {
+                        on_monitor(regs.X & MASK_24);
+                    } else {
+                        std::printf("[MONITOR] X = %u (0x%06X)\n",
+                                    regs.X & MASK_24, regs.X & MASK_24);
+                    }
+                    return 2;
                 default:  return 2;
             }
         }
