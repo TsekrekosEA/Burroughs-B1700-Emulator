@@ -655,6 +655,70 @@ static void dump_file(const TapeFile& tf, const std::string& output_dir) {
     }
 }
 
+static void inspect_file_detail(const TapeFile& tf, const AnalyzedFile& af) {
+    std::printf("\n═══ File %d: %s ═══\n", af.file_number,
+                af.label_name.empty() ? "(unnamed)" : af.label_name.c_str());
+    std::printf("  Class:       %s\n", file_class_name(af.classification));
+    std::printf("  Description: %s\n", af.description.c_str());
+    std::printf("  Records:     %zu\n", tf.records.size());
+    std::printf("  Total bytes: %lu\n", (unsigned long)af.total_bytes);
+
+    if (af.hdr_label.has_value()) {
+        std::printf("  HDR1 Label:\n");
+        std::printf("    File ID:     %s\n", af.hdr_label->file_id.c_str());
+        std::printf("    File Set:    %s\n", af.hdr_label->file_set_id.c_str());
+        std::printf("    Section:     %d\n", af.hdr_label->section_number);
+        std::printf("    Sequence:    %d\n", af.hdr_label->sequence_number);
+        std::printf("    Generation:  %s\n", af.hdr_label->generation.c_str());
+        std::printf("    Created:     %s\n", af.hdr_label->creation_date.c_str());
+    }
+
+    // Record size distribution
+    std::map<uint32_t, int> size_dist;
+    for (const auto& r : tf.records) size_dist[r.length]++;
+    if (size_dist.size() <= 15) {
+        std::printf("\n  Record size distribution:\n");
+        for (auto& [sz, cnt] : size_dist)
+            std::printf("    %6u bytes: %d records\n", sz, cnt);
+    } else {
+        std::printf("\n  Record sizes: %zu distinct values\n", size_dist.size());
+    }
+
+    // Show first few records
+    size_t show_count = std::min<size_t>(tf.records.size(), 5);
+    std::printf("\n  First %zu records:\n", show_count);
+    for (size_t i = 0; i < show_count; ++i) {
+        const auto& r = tf.records[i];
+        std::printf("  Record %zu: %u bytes%s (tape offset 0x%lX)\n",
+                    i, r.length, r.error ? " [ERROR]" : "",
+                    (unsigned long)r.file_offset);
+        if (r.data.empty()) continue;
+        hex_dump_full(r.data.data(), std::min<size_t>(r.data.size(), 128));
+    }
+}
+
+static void extract_file_by_number(const TapeFile& tf, int file_num,
+                                    const std::string& output_name) {
+    std::string out_path = output_name.empty() ?
+        "file" + std::to_string(file_num) + ".bin" : output_name;
+
+    std::ofstream out(out_path, std::ios::binary);
+    if (!out) {
+        std::fprintf(stderr, "Error: cannot create %s\n", out_path.c_str());
+        return;
+    }
+
+    uint64_t total = 0;
+    for (const auto& r : tf.records) {
+        if (!r.data.empty()) {
+            out.write(reinterpret_cast<const char*>(r.data.data()), r.data.size());
+            total += r.data.size();
+        }
+    }
+    std::printf("Extracted file %d → %s (%lu bytes, %zu records)\n",
+                file_num, out_path.c_str(), (unsigned long)total, tf.records.size());
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // MAIN
 // ══════════════════════════════════════════════════════════════════════════
