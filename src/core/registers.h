@@ -11,32 +11,31 @@ namespace b1700 {
 class RegisterFile {
 public:
     // ── Main 24-bit registers ────────────────────────────────────────────
-    reg24_t X   = 0;   // Group 4 / Select 0  — left operand
-    reg24_t Y   = 0;   // Group 4 / Select 1  — right operand
-    reg24_t T   = 0;   // Group 4 / Select 2  — transform register
-    reg24_t L   = 0;   // Group 4 / Select 3  — logical register
+    reg24_t X   = 0;   // Group 2 / Select 0
+    reg24_t Y   = 0;   // Group 2 / Select 1
+    reg24_t T   = 0;   // Group 2 / Select 2
+    reg24_t L   = 0;   // Group 2 / Select 3
 
-    reg24_t FA  = 0;   // Group 8 / Select 0  — field address (bit-address)
-    reg24_t FB  = 0;   // Group 8 / Select 1  — field descriptor (FU:FT:FL)
+    reg24_t FA  = 0;   // Group 8 / Select 2
+    reg24_t FB  = 0;   // Group 9 / Select 2 — includes FU:FT:FL sub-fields
     // FL is the low 16 bits of FB.  FU is bits 23–20.  FT is bits 19–16.
 
-    reg24_t BR  = 0;   // Group 5 / Select 2  — base register
-    reg24_t LR  = 0;   // Group 5 / Select 3  — limit register
+    reg24_t BR  = 0;   // Group 6 / Select 2
+    reg24_t LR  = 0;   // Group 7 / Select 2
 
     // ── 19-bit MAR (also known as 'A' register / program counter) ────────
-    reg19_t MAR = 0;   // Group 5 / Select 0
+    reg19_t MAR = 0;   // Group 4 / Select 2
 
     // ── 16-bit registers ─────────────────────────────────────────────────
-    reg16_t M   = 0;   // Group 5 / Select 1  — current micro-instruction
-    reg16_t U   = 0;   // Group 10/ Select 3  — cassette accumulator (read-only)
+    reg16_t M   = 0;   // Group 5 / Select 2
+    reg16_t U   = 0;   // Group 11 / Select 3
 
-    // ── 24-bit Control register (addressed as sub-fields) ────────────────
-    // CA(4) CB(4) CC(4) CD(4) CPL(5) CPU(2) CYF(1) = 24 bits
-    reg4_t CA  = 0;    // Group 13 / Select 0
-    reg4_t CB  = 0;    // Group 13 / Select 1
-    reg4_t CC  = 0;    // Group 13 / Select 2  — interrupt status
-    reg4_t CD  = 0;    // Group 13 / Select 3  — error/status
-    reg8_t CP  = 0;    // Group 11 / Select 2  — CPL(7:3), CPU(2:1), CYF(0)
+    // ── Control registers ────────────────────────────────────────────────
+    reg4_t CA  = 0;    // Group 6 / Select 0
+    reg4_t CB  = 0;    // Group 7 / Select 0
+    reg4_t CC  = 0;    // Group 14 / Select 0
+    reg4_t CD  = 0;    // Group 15 / Select 0
+    reg8_t CP  = 0;    // Group 12 / Select 2 — CPL(7:3), CPU(2:1), CYF(0)
 
     // CP field accessors
     uint8_t CPL() const { return (CP >> 3) & 0x1F; }
@@ -61,8 +60,8 @@ public:
     }
 
     // ── MAXS / MAXM (hardware-wired constants) ──────────────────────────
-    reg24_t MAXS = 0;  // Group 9 / Select 0  — S-memory size in bits
-    reg24_t MAXM = 0;  // Group 9 / Select 1  — M-memory size in bits
+    reg24_t MAXS = 0;  // Group 9 / Select 3
+    reg24_t MAXM = 0;  // Group 10 / Select 3
 
     // ── A-Stack ──────────────────────────────────────────────────────────
     static constexpr size_t MAX_STACK = B1720_STACK_DEPTH; // allocate max
@@ -94,12 +93,12 @@ public:
 
     // ── Pseudo-registers (I/O) ───────────────────────────────────────────
     reg24_t CMND_out = 0;   // Group 14 / Select 3  — write-only command
-    reg24_t DATA_io  = 0;   // Group 15 / Select 2  — bidirectional I/O data
+    reg24_t DATA_io  = 0;   // Group 13 / Select 3  — bidirectional I/O data
     reg24_t TOPM     = 0;   // Top of M-memory (B1720)
 
     // ── BICN, FLCN, XYCN, XYST (hardware-generated condition registers) ─
     // These are computed on read, not stored.  We cache them for testing.
-    reg4_t BICN = 0;        // Group 12 / Select 0
+    reg4_t BICN = 0;        // Group 6 / Select 1
     // FLCN, XYCN, XYST are computed dynamically (see Processor).
 
     // ── Temporary holding register for 7C memory ops ─────────────────────
@@ -113,20 +112,33 @@ public:
     bool halted = false;
 
     // ══════════════════════════════════════════════════════════════════════
-    // Register read/write by group/select address
+    // Register read/write by group/select address  (Table I-3 from manual)
     // ══════════════════════════════════════════════════════════════════════
+    //
+    //  Grp | Sel 0  | Sel 1  | Sel 2  | Sel 3
+    //  ────┼────────┼────────┼────────┼────────
+    //   0  | TA     | TB     | TC     | TD
+    //   1  | FU     | FT     | FLC    | FLD
+    //   2  | X      | Y      | T      | L
+    //   3  | SUM    | CMPX   | CMPY   | XANY
+    //   4  | TE     | FLE    | MAR(A) | XEQY
+    //   5  | TF     | FLF    | M      | MSKX
+    //   6  | CA     | BICN   | BR     | MSKY
+    //   7  | CB     | FLCN   | LR     | XORY
+    //   8  | LA     | RES    | FA     | DIFF
+    //   9  | LB     | RES    | FB     | MAXS
+    //  10  | LC     | RES    | FL     | MAXM
+    //  11  | LD     | RES    | TAS    | U
+    //  12  | LE     | XYCN   | CP     | RES
+    //  13  | LF     | XYST   | RES    | DATA
+    //  14  | CC     | RES    | READ   | CMND
+    //  15  | CD     | CPU    | WRIT   | NULL
 
-    // Read a register by its (group, select) address.
-    // Returns value right-justified, zero-filled in 24 bits.
-    // `processor` pointer needed for computed pseudo-registers; pass nullptr
-    // if not available (will return cached values).
     uint32_t read(uint8_t group, uint8_t select) const {
         switch (group) {
-            case  0: return get_T_nibble(select);           // TA–TD
-            case  1: return get_T_nibble(4 + select);       // TE, TF, (reserved)
-            case  2: return get_FB_nibble(select);           // FU, FT, FLC, FLD
-            case  3: return get_FB_nibble(4 + select);       // FLE, FLF, (reserved)
-            case  4:
+            case 0: return get_T_nibble(select);      // TA(0), TB(1), TC(2), TD(3)
+            case 1: return get_FB_nibble(select);     // FU(0), FT(1), FLC(2), FLD(3)
+            case 2:
                 switch (select) {
                     case 0: return X & MASK_24;
                     case 1: return Y & MASK_24;
@@ -134,86 +146,112 @@ public:
                     case 3: return L & MASK_24;
                 }
                 break;
-            case  5:
+            case 3: return read_func_box_24(select);  // SUM(0), CMPX(1), CMPY(2), XANY(3)
+            case 4:
                 switch (select) {
-                    case 0: return MAR & MASK_19;
-                    case 1: return M & MASK_16;
-                    case 2: return BR & MASK_24;
-                    case 3: return LR & MASK_24;
+                    case 0: return get_T_nibble(4);   // TE
+                    case 1: return get_FB_nibble(4);  // FLE
+                    case 2: return MAR & MASK_19;     // MAR(A)
+                    case 3: return read_func_box_24(4); // XEQY
                 }
                 break;
-            case  6: return read_func_box_24(select);        // SUM, CMPX, CMPY, XANY
-            case  7: return read_func_box_24(4 + select);    // XEQY, MSKX, MSKY, XORY
-            case  8:
+            case 5:
                 switch (select) {
-                    case 0: return FA & MASK_24;
-                    case 1: return FB & MASK_24;
-                    case 2: return FL();
-                    case 3: return read_func_box_24(8);      // DIFF
+                    case 0: return get_T_nibble(5);   // TF
+                    case 1: return get_FB_nibble(5);  // FLF
+                    case 2: return M & MASK_16;       // M
+                    case 3: return read_func_box_24(5); // MSKX
                 }
                 break;
-            case  9:
+            case 6:
                 switch (select) {
-                    case 0: return MAXS;
-                    case 1: return MAXM;
-                    default: return 0;
+                    case 0: return CA;               // CA
+                    case 1: return BICN;             // BICN
+                    case 2: return BR & MASK_24;     // BR
+                    case 3: return read_func_box_24(6); // MSKY
+                }
+                break;
+            case 7:
+                switch (select) {
+                    case 0: return CB;               // CB
+                    case 1: return compute_FLCN();   // FLCN
+                    case 2: return LR & MASK_24;     // LR
+                    case 3: return read_func_box_24(7); // XORY
+                }
+                break;
+            case 8:
+                switch (select) {
+                    case 0: return get_L_nibble(0);  // LA
+                    case 1: return 0;                // RES
+                    case 2: return FA & MASK_24;     // FA
+                    case 3: return read_func_box_24(8); // DIFF
+                }
+                break;
+            case 9:
+                switch (select) {
+                    case 0: return get_L_nibble(1);  // LB
+                    case 1: return 0;                // RES
+                    case 2: return FB & MASK_24;     // FB
+                    case 3: return MAXS;             // MAXS
                 }
                 break;
             case 10:
                 switch (select) {
-                    case 2: return top();                    // TAS (pop on read)
-                    case 3: return U;
-                    default: return 0;
+                    case 0: return get_L_nibble(2);  // LC
+                    case 1: return 0;                // RES
+                    case 2: return FL();             // FL
+                    case 3: return MAXM;             // MAXM
                 }
                 break;
             case 11:
-                if (select == 2) return CP;
-                return 0;
+                switch (select) {
+                    case 0: return get_L_nibble(3);  // LD
+                    case 1: return 0;                // RES
+                    case 2: return top();            // TAS
+                    case 3: return U;                // U
+                }
+                break;
             case 12:
                 switch (select) {
-                    case 0: return BICN;
-                    case 1: return compute_FLCN();
-                    case 2: return compute_XYCN();
-                    case 3: return compute_XYST();
+                    case 0: return get_L_nibble(4);  // LE
+                    case 1: return compute_XYCN();   // XYCN
+                    case 2: return CP;               // CP
+                    case 3: return 0;                // RES
                 }
                 break;
             case 13:
                 switch (select) {
-                    case 0: return CA;
-                    case 1: return CB;
-                    case 2: return CC;
-                    case 3: return CD;
+                    case 0: return get_L_nibble(5);  // LF
+                    case 1: return compute_XYST();   // XYST
+                    case 2: return 0;                // RES
+                    case 3: return DATA_io;          // DATA
                 }
                 break;
             case 14:
                 switch (select) {
-                    case 0: return CP >> 1;    // CPU
-                    case 2: return 0;          // READ pseudo — not readable normally
-                    case 3: return 0;          // CMND — write only
-                    default: return 0;
+                    case 0: return CC;               // CC
+                    case 1: return 0;                // RES
+                    case 2: return 0;                // READ pseudo
+                    case 3: return 0;                // CMND — write only
                 }
                 break;
             case 15:
                 switch (select) {
-                    case 0: return 0;          // WRIT pseudo
-                    case 1: return 0;          // NULL — always zero
-                    case 2: return DATA_io;
-                    default: return 0;
+                    case 0: return CD;               // CD
+                    case 1: return CP >> 1;          // CPU (bits 2:1 of CP)
+                    case 2: return 0;                // WRIT pseudo
+                    case 3: return 0;                // NULL — always 0
                 }
                 break;
         }
         return 0;
     }
 
-    // Write a register by its (group, select) address.
-    // Value should be right-justified; excess bits are truncated.
     void write(uint8_t group, uint8_t select, uint32_t value) {
         switch (group) {
-            case  0: set_T_nibble(select, value & 0xF); return;
-            case  1: set_T_nibble(4 + select, value & 0xF); return;
-            case  2: set_FB_nibble(select, value & 0xF); return;
-            case  3: set_FB_nibble(4 + select, value & 0xF); return;
-            case  4:
+            case 0: set_T_nibble(select, value & 0xF); return;      // TA-TD
+            case 1: set_FB_nibble(select, value & 0xF); return;     // FU, FT, FLC, FLD
+            case 2:
                 switch (select) {
                     case 0: X = value & MASK_24; return;
                     case 1: Y = value & MASK_24; return;
@@ -221,68 +259,111 @@ public:
                     case 3: L = value & MASK_24; return;
                 }
                 return;
-            case  5:
+            case 3: return; // Function box — read only
+            case 4:
                 switch (select) {
-                    case 0: MAR = value & MASK_19; return;
-                    case 1:
-                        // Writing to M: OR with next incoming micro
-                        m_modify_pending = true;
-                        m_modify_value   = static_cast<uint16_t>(value & MASK_16);
-                        return;
-                    case 2: BR = value & MASK_24; return;
-                    case 3: LR = value & MASK_24; return;
+                    case 0: set_T_nibble(4, value & 0xF); return;   // TE
+                    case 1: set_FB_nibble(4, value & 0xF); return;  // FLE
+                    case 2: MAR = value & MASK_19; return;           // MAR(A)
+                    case 3: return; // XEQY — read only
                 }
                 return;
-            case  6: return; // Function box outputs — read only
-            case  7: return; // Function box outputs — read only
-            case  8:
+            case 5:
                 switch (select) {
-                    case 0: FA = value & MASK_24; return;
-                    case 1: FB = value & MASK_24; return;
-                    case 2: set_FL(static_cast<uint16_t>(value & MASK_16)); return;
+                    case 0: set_T_nibble(5, value & 0xF); return;   // TF
+                    case 1: set_FB_nibble(5, value & 0xF); return;  // FLF
+                    case 2: // M — OR with next incoming micro
+                        m_modify_pending = true;
+                        m_modify_value = static_cast<uint16_t>(value & MASK_16);
+                        return;
+                    case 3: return; // MSKX — read only
+                }
+                return;
+            case 6:
+                switch (select) {
+                    case 0: CA = value & 0xF; return;
+                    case 1: return; // BICN — read only
+                    case 2: BR = value & MASK_24; return;
+                    case 3: return; // MSKY — read only
+                }
+                return;
+            case 7:
+                switch (select) {
+                    case 0: CB = value & 0xF; return;
+                    case 1: return; // FLCN — read only
+                    case 2: LR = value & MASK_24; return;
+                    case 3: return; // XORY — read only
+                }
+                return;
+            case 8:
+                switch (select) {
+                    case 0: set_L_nibble(0, value & 0xF); return;   // LA
+                    case 1: return; // RES
+                    case 2: FA = value & MASK_24; return;
                     case 3: return; // DIFF — read only
                 }
                 return;
-            case  9: return; // MAXS, MAXM — read only
+            case 9:
+                switch (select) {
+                    case 0: set_L_nibble(1, value & 0xF); return;   // LB
+                    case 1: return; // RES
+                    case 2: FB = value & MASK_24; return;
+                    case 3: return; // MAXS — read only
+                }
+                return;
             case 10:
                 switch (select) {
-                    case 2: push(value & MASK_24); return;   // TAS (push on write)
-                    default: return;
+                    case 0: set_L_nibble(2, value & 0xF); return;   // LC
+                    case 1: return; // RES
+                    case 2: set_FL(static_cast<uint16_t>(value & MASK_16)); return;
+                    case 3: return; // MAXM — read only
                 }
                 return;
             case 11:
-                if (select == 2) { CP = value & MASK_8; return; }
+                switch (select) {
+                    case 0: set_L_nibble(3, value & 0xF); return;   // LD
+                    case 1: return; // RES
+                    case 2: push(value & MASK_24); return;           // TAS
+                    case 3: return; // U — read only in normal mode
+                }
                 return;
-            case 12: return; // Condition registers — read only
+            case 12:
+                switch (select) {
+                    case 0: set_L_nibble(4, value & 0xF); return;   // LE
+                    case 1: return; // XYCN — read only
+                    case 2: CP = value & MASK_8; return;
+                    case 3: return; // RES
+                }
+                return;
             case 13:
                 switch (select) {
-                    case 0: CA = value & 0xF; return;
-                    case 1: CB = value & 0xF; return;
-                    case 2: CC = value & 0xF; return;
-                    case 3: CD = value & 0xF; return;
+                    case 0: set_L_nibble(5, value & 0xF); return;   // LF
+                    case 1: return; // XYST — read only
+                    case 2: return; // RES
+                    case 3: DATA_io = value & MASK_24; return;
                 }
                 return;
             case 14:
                 switch (select) {
-                    case 0: set_CPU(value & 0x3); return;
-                    case 3: CMND_out = value & MASK_24; return;  // CMND — triggers I/O
-                    default: return;
+                    case 0: CC = value & 0xF; return;
+                    case 1: return; // RES
+                    case 2: return; // READ pseudo
+                    case 3: CMND_out = value & MASK_24; return;
                 }
                 return;
             case 15:
                 switch (select) {
-                    case 1: return;          // NULL — discard
-                    case 2: DATA_io = value & MASK_24; return;
-                    default: return;
+                    case 0: CD = value & 0xF; return;
+                    case 1: set_CPU(value & 0x3); return;
+                    case 2: return; // WRIT pseudo
+                    case 3: return; // NULL — discard
                 }
                 return;
         }
     }
 
     // ── TAS special: read that pops ──────────────────────────────────────
-    // The normal `read(10, 2)` returns top(). We handle pop in the processor
-    // when we detect a TAS source read.  For register-move, a separate
-    // `read_pop` can be used:
+    // Normal `read(11, 2)` returns top(). Pop handled in processor for 1C.
     reg24_t read_pop() { return pop(); }
 
 private:
@@ -312,8 +393,28 @@ private:
         FB = (FB & ~(0xFu << shift)) | ((val & 0xFu) << shift);
     }
 
+    // ── L register 4-bit nibble helpers ──────────────────────────────────
+    // 0=LA(23:20), 1=LB(19:16), 2=LC(15:12), 3=LD(11:8), 4=LE(7:4), 5=LF(3:0)
+    uint8_t get_L_nibble(uint8_t idx) const {
+        if (idx > 5) return 0;
+        return (L >> ((5 - idx) * 4)) & 0xF;
+    }
+
+    void set_L_nibble(uint8_t idx, uint8_t val) {
+        if (idx > 5) return;
+        uint8_t shift = (5 - idx) * 4;
+        L = (L & ~(0xFu << shift)) | ((val & 0xFu) << shift);
+    }
+
     // ── Function box output computation ──────────────────────────────────
-    // These are combinatorial — always reflect current X, Y, CP state.
+    // Outputs are combinatorial — always reflect current X, Y, CP state.
+    // Mapped to groups via Table I-3:
+    //   Group 3: SUM(0), CMPX(1), CMPY(2), XANY(3)
+    //   Group 4 sel 3: XEQY  → output_id 4
+    //   Group 5 sel 3: MSKX  → output_id 5
+    //   Group 6 sel 3: MSKY  → output_id 6
+    //   Group 7 sel 3: XORY  → output_id 7
+    //   Group 8 sel 3: DIFF  → output_id 8
     uint32_t read_func_box_24(uint8_t output_id) const {
         uint8_t cpl = CPL();
         if (cpl == 0) cpl = 24;
@@ -384,10 +485,11 @@ private:
         // SFL is the FL stored in scratchpad word 0 right half (bits 15:0)
         uint16_t sfl = static_cast<uint16_t>(scratchpad[0].right & MASK_16);
         uint8_t r = 0;
-        if (fl == 0)    r |= 0x1;  // FLCN(0): FL = 0
-        if (fl <  sfl)  r |= 0x2;  // FLCN(1): FL < SFL
-        if (fl >  sfl)  r |= 0x4;  // FLCN(2): FL > SFL
-        if (fl == sfl)  r |= 0x8;  // FLCN(3): FL = SFL
+        // B1700 MSB-first: bit(0)=MSB=0x8, bit(3)=LSB=0x1
+        if (fl == 0)    r |= 0x8;  // FLCN(0): FL = 0
+        if (fl <  sfl)  r |= 0x4;  // FLCN(1): FL < SFL
+        if (fl >  sfl)  r |= 0x2;  // FLCN(2): FL > SFL
+        if (fl == sfl)  r |= 0x1;  // FLCN(3): FL = SFL
         return r;
     }
 
@@ -398,18 +500,22 @@ private:
         uint32_t mx = X & mask;
         uint32_t my = Y & mask;
         uint8_t r = 0;
-        if (mx == my)  r |= 0x8;  // equality
-        if (mx != my)  r |= 0x4;  // inequality
-        if (mx <  my)  r |= 0x2;  // X < Y
-        if (mx >  my)  r |= 0x1;  // X > Y
+        // Per manual: bit 0=GTR, bit 1=LSS, bit 2=EQL, bit 3=MSBX
+        // B1700 MSB-first: bit(0)=MSB=0x8, bit(3)=LSB=0x1
+        if (mx >  my)  r |= 0x8;  // XYCN(0): X > Y
+        if (mx <  my)  r |= 0x4;  // XYCN(1): X < Y
+        if (mx == my)  r |= 0x2;  // XYCN(2): X = Y
+        if (mx & (1u << (cpl - 1))) r |= 0x1;  // XYCN(3): MSB of X
         return r;
     }
 
     uint8_t compute_XYST() const {
-        // XYST(2) = INT OR = OR of all interrupt sources
-        bool int_or = (CC & 0xF) != 0;
+        // XYST(2) = INT OR = OR of hardware interrupt sources
+        // B1700 MSB-first: CC(0)=0x8 (user flag), CC(1)=0x4 (bus interrupt),
+        // CC(2)=0x2, CC(3)=0x1.  Exclude CC(0) from interrupt OR.
+        bool int_or = (CC & 0x07) != 0;  // CC(1..3) in MSB-first
         uint8_t r = 0;
-        if (int_or) r |= 0x4;  // bit 2
+        if (int_or) r |= 0x2;  // XYST(2) in MSB-first = value 0x2
         return r;
     }
 };
