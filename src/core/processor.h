@@ -5,6 +5,7 @@
 #include "types.h"
 #include "memory.h"
 #include "registers.h"
+#include "io_bus.h"
 
 #include <cstdio>
 #include <functional>
@@ -15,6 +16,7 @@ class Processor {
 public:
     RegisterFile regs;
     Memory       mem;
+    IOBus        io;
     uint64_t     cycles = 0;
     bool         trace_enabled = false;
 
@@ -41,6 +43,13 @@ public:
     // ── Single-step one microinstruction ─────────────────────────────────
     void step() {
         if (regs.halted) return;
+
+        // Tick I/O bus and update CC(1) from service requests
+        io.tick(cycles);
+        if (io.any_service_request()) {
+            regs.CC |= 0x04;  // set CC(1) = bus interrupt (MSB-first: bit1=0x04)
+        }
+        regs.BICN = io.get_bicn();  // update bus status register
 
         // Fetch micro at MAR (word-aligned)
         uint16_t micro = mem.fetch_micro(regs.MAR);
@@ -71,65 +80,87 @@ public:
 
 private:
     // ══════════════════════════════════════════════════════════════════════
-    // DECODE TREE
+    // DECODE TREE  —  MC[15:12] IS the opcode (switch on MC)
     // ══════════════════════════════════════════════════════════════════════
     int decode_and_execute(MicroFields f) {
-        // ── Special exact-match instructions (MC=0, MD=0 patterns) ───────
-        if (f.raw == 0x0000) return 2;  // NOP
-        if (f.raw == 0x0002) {          // HALT (1F)
-            regs.halted = true;
-            if (on_halt) on_halt();
-            return 2;
-        }
-        if (f.raw == 0x0003) return exec_normalize(f);  // 3F Normalize X
-
         uint8_t mc = f.MC();
-
-        // ── Branch/Call family: MC[15:14] == 11 (MC = 12–15) ────────────
-        if ((f.raw >> 14) == 0x3) {
-            bool is_call = (f.raw >> 13) & 1;  // bit 13: 1=call, 0=branch
-            return is_call ? exec_call(f) : exec_branch(f);
-        }
-
-        // ── 7C Read/Write Memory: MC = 0111 ─────────────────────────────
-        if (mc == 0x7) {
-            return exec_memory_access(f);
-        }
-
-        // ── MC = 0000 with MD ≠ 0: D/E class secondary micros ───────────
-        if (mc == 0x0 && f.MD() != 0) {
-            return decode_secondary(f);
-        }
-
-        // ── Primary C-class: MF[1:0] selects instruction class ──────────
-        // Covers MC=0 (with MD=0, non-special), MC=1–6, and MC=8–11.
-        // MC encodes the source register group (1C) or dest group (8C).
-        switch (f.MF() & 0x3) {
-            case 0: return exec_register_move_or_shift(f);  // 1C
-            case 1: return exec_4bit_manipulate(f);         // 3C
-            case 2: return exec_literal_move(f);            // 8C / 9C
-            case 3: return exec_skip_when(f);               // 6C
+        switch (mc) {
+            case 0:  return decode_secondary(f);        // NOP/HALT/D-class/E-class
+            case 1:  return exec_register_move(f);      // 1C
+            case 2:  return exec_scratchpad_move(f);    // 2C
+            case 3:  return exec_4bit_manipulate(f);    // 3C
+            case 4:  return exec_bit_test_branch(f, false); // 4C (branch if false)
+            case 5:  return exec_bit_test_branch(f, true);  // 5C (branch if true)
+            case 6:  return exec_skip_when(f);          // 6C
+            case 7:  return exec_memory_access(f);      // 7C
+            case 8:  return exec_literal_8(f);          // 8C
+            case 9:  return exec_literal_24(f);         // 9C
+            case 10: return exec_shift_rotate_t(f);     // 10C
+            case 11: return exec_extract_from_t(f);     // 11C
+            case 12: case 13: return exec_branch(f);    // 12C/13C
+            case 14: case 15: return exec_call(f);      // 14C/15C
         }
         return 2; // unreachable
     }
 
-    // ── Secondary decode (MC = 0000, MD ≠ 0) ────────────────────────────
+    // ── Secondary decode (MC=0) ─────────────────────────────────────────
     int decode_secondary(MicroFields f) {
-        uint8_t md = f.MD();
-
-        switch (md) {
-            case 0x1: return exec_dispatch(f);    // DISPATCH (I/O bus control)
-            case 0x2: return exec_scratchpad_move_or_cassette(f);
-            case 0x3: return exec_bias(f);          // 3E
-            case 0x4: return exec_shift_xy(f);      // 4D
-            case 0x5: return exec_shift_xy_concat(f); // 5D
-            case 0x6: return exec_count_or_carry(f);  // 6D or 6E
-            case 0x7: return exec_exchange_doublepad(f); // 7D
-            case 0x8: return exec_scratchpad_relate(f);  // 8D
-            case 0x9: return 2;  // 9D Monitor — NOP
-            case 0xA: return exec_bit_test_skip(f);  // Bit test + skip
-            default:  return 2;  // Unknown — treat as NOP
+        // F-class: MC=0, MD=0, ME=0 → special instructions
+        if (f.raw == 0x0000) return 2;  // NOP
+        if (f.raw == 0x0001) {          // OVERLAY: S-memory → M-memory transfer
+            // Transfer data from S-memory (FA) to M-memory (L) for FB bits.
+            // On the real B1700, this copies the loaded program from S-memory
+            // into M-memory and then the M-memory interpreter takes over.
+            uint32_t src = regs.FA & MASK_24;
+            uint32_t dst = regs.L & MASK_24;
+            uint32_t len = regs.FB & MASK_24;
+            // At program start, FA=0 and FB=0 — this is the initial pass
+            // through the OVERLAY instruction (it's at word 0, the entry point).
+            // Skip the overlay and continue to the initialization code.
+            // When called from .END after an M-load, FA=SBUF and FB=length.
+            if (src != 0 || len != 0) {
+                std::printf("[OVERLAY] S-memory %06X → M-memory %06X, %u bits — bootstrap complete\n",
+                            src, dst, len);
+                regs.halted = true;
+                if (on_halt) on_halt();
+            }
+            return 2;
         }
+        if (f.raw == 0x0002) {          // HALT
+            regs.halted = true;
+            if (on_halt) on_halt();
+            return 2;
+        }
+        if (f.raw == 0x0003) return exec_normalize(f);  // 3F Normalize
+
+        uint8_t md = f.MD();
+        if (md != 0) {
+            // D-class: decoded by MD
+            switch (md) {
+                case 0x1: return exec_dispatch(f);
+                case 0x2: return 2; // 2E Cassette — NOP for now
+                case 0x3: return exec_bias(f);            // 3E in some encodings
+                case 0x4: return exec_shift_xy(f);
+                case 0x5: return exec_shift_xy_concat(f);
+                case 0x6: return exec_count_or_carry(f);
+                case 0x7: return exec_exchange_doublepad(f);
+                case 0x8: return exec_scratchpad_relate(f);
+                case 0x9: return 2;  // 9D Monitor — NOP
+                default:  return 2;
+            }
+        }
+
+        uint8_t me = f.ME();
+        if (me != 0) {
+            // E-class: decoded by ME
+            switch (me) {
+                case 0x1: return exec_dispatch(f);  // 1E DISPATCH
+                case 0x3: return exec_bias(f);      // 3E BIAS
+                default:  return 2;
+            }
+        }
+
+        return 2; // unknown MC=0 instruction
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -137,166 +168,140 @@ private:
     // ══════════════════════════════════════════════════════════════════════
 
     // ── 1C: Register Move ────────────────────────────────────────────────
-    int exec_register_move_or_shift(MicroFields f) {
-        // Distinguish 1C from 10C/11C:
-        // For 10C: dest has shift info, not a simple move.
-        // For 11C: further decode needed.
-        // Heuristic: for now, treat all MF[1:0]==00 as 1C register moves.
-        // The 10C and 11C have MC=0000 and are handled in decode_secondary.
-        // So any MC != 0 with MF[1:0] == 00 is a 1C register move.
+    int exec_register_move(MicroFields f) {
+        uint8_t src_grp = f.r1c_src_group();
+        uint8_t src_sel = f.r1c_src_select();
+        uint8_t dst_grp = f.r1c_dst_group();
+        uint8_t dst_sel = f.r1c_dst_select();
 
-        uint8_t src_grp = f.src_group();
-        uint8_t src_sel = f.src_select();
-        uint8_t dst_grp = f.dst_group();
-        uint8_t dst_sel = f.dst_select();
-
-        // Read source
+        // TAS (group 11 sel 2) pops on read
         uint32_t val;
-        bool is_tas_read = (src_grp == 10 && src_sel == 2);
-        if (is_tas_read) {
+        if (src_grp == 11 && src_sel == 2) {
             val = regs.read_pop();
         } else {
             val = regs.read(src_grp, src_sel);
         }
 
-        // Width adaptation is inherent in the read/write dispatch
-
-        // Write destination
-        bool dst_is_mar = (dst_grp == 5 && dst_sel == 0);
         regs.write(dst_grp, dst_sel, val);
 
+        // MAR is group 4 sel 2
+        bool dst_is_mar = (dst_grp == 4 && dst_sel == 2);
         return dst_is_mar ? 4 : 2;
+    }
+
+    // ── 2C: Scratchpad Move ──────────────────────────────────────────────
+    int exec_scratchpad_move(MicroFields f) {
+        uint8_t pad_addr = f.r2c_pad_addr();
+        bool is_right    = f.r2c_is_right();
+        bool from_pad    = f.r2c_from_pad();
+        uint8_t reg_sel  = f.r2c_reg_select();
+        uint8_t reg_grp  = f.r2c_reg_group();
+
+        if (pad_addr >= SCRATCHPAD_WORDS) pad_addr = 0;
+        auto& word = regs.scratchpad[pad_addr];
+
+        if (from_pad) {
+            uint32_t val = is_right ? word.right : word.left;
+            regs.write(reg_grp, reg_sel, val);
+        } else {
+            uint32_t val = regs.read(reg_grp, reg_sel) & MASK_24;
+            if (is_right) word.right = val; else word.left = val;
+        }
+        return 3;
     }
 
     // ── 3C: 4-Bit Manipulate ─────────────────────────────────────────────
     int exec_4bit_manipulate(MicroFields f) {
-        uint8_t src_grp = f.src_group();
-        uint8_t src_sel = f.src_select();
-        uint8_t func    = f.variant();  // MD[1:0] = function: 00=SET, 01=AND, 10=OR, 11=XOR
-        uint8_t dst_grp = f.dst_group();
-        uint8_t dst_sel = f.dst_select();
+        uint8_t grp     = f.r3c_group();
+        uint8_t sel     = f.r3c_select();
+        uint8_t variant = f.r3c_variant();
+        uint8_t literal = f.r3c_literal();
 
-        uint8_t src_val = regs.read(src_grp, src_sel) & 0xF;
-        uint8_t dst_val = regs.read(dst_grp, dst_sel) & 0xF;
-
+        uint8_t cur_val = regs.read(grp, sel) & 0xF;
         uint8_t result;
-        switch (func) {
-            case 0: result = src_val; break;               // SET
-            case 1: result = dst_val & src_val; break;     // AND
-            case 2: result = dst_val | src_val; break;     // OR
-            case 3: result = dst_val ^ src_val; break;     // XOR
-            default: result = dst_val; break;
+        bool skip = false;
+
+        switch (variant) {
+            case 0: result = literal; break;                         // SET
+            case 1: result = cur_val & literal; break;               // AND
+            case 2: result = cur_val | literal; break;               // OR
+            case 3: result = cur_val ^ literal; break;               // EOR
+            case 4: result = (cur_val + literal) & 0xF; break;      // INC
+            case 5: {                                                // INC-T (skip on overflow)
+                uint8_t sum = cur_val + literal;
+                result = sum & 0xF;
+                skip = (sum > 0xF);
+                break;
+            }
+            case 6: result = (cur_val - literal) & 0xF; break;      // DEC
+            case 7: {                                                // DEC-T (skip on underflow)
+                result = (cur_val - literal) & 0xF;
+                skip = (cur_val < literal);
+                break;
+            }
+            default: result = cur_val; break;
         }
 
-        regs.write(dst_grp, dst_sel, result & 0xF);
+        regs.write(grp, sel, result & 0xF);
+
+        if (skip) {
+            regs.MAR = (regs.MAR + 16) & MASK_19;
+        }
         return 2;
     }
 
-    // ── 4C/5C: Bit Test Branch ───────────────────────────────────────────
-    int exec_bit_test_branch(MicroFields f) {
-        // Layout:
-        //   [15:14] = 01 (class identifier)
-        //   [13]    = 0:branch-if-false (4C), 1:branch-if-true (5C)
-        //   [12:9]  = register index (4 bits)
-        //   [8:7]   = bit to test (0-3)
-        //   [6:0]   = signed displacement (7-bit two's complement, in words)
-        //
-        // Register index → (group, select):
-        //   0:TA(0,0)  1:TB(0,1)  2:TC(0,2)  3:TD(0,3)
-        //   4:TE(1,0)  5:TF(1,1)  6:FU(2,0)  7:FT(2,1)
-        //   8:BICN(12,0)  9:FLCN(12,1)  10:XYCN(12,2)  11:XYST(12,3)
-        //   12:CC(13,2)  13:CA(13,0)  14:CB(13,1)  15:CD(13,3)
+    // ── 4C/5C: Bit Test Relative Branch ──────────────────────────────────
+    int exec_bit_test_branch(MicroFields f, bool branch_if_true) {
+        uint8_t grp     = f.r4c_group();
+        uint8_t sel     = f.r4c_select();
+        uint8_t bit_pos = f.r4c_bit();
+        bool    neg     = f.r4c_neg();
+        uint8_t disp    = f.r4c_disp();
 
-        static const uint8_t idx_groups[]  = {0,0,0,0, 1,1, 2,2, 12,12,12,12, 13,13,13,13};
-        static const uint8_t idx_selects[] = {0,1,2,3, 0,1, 0,1, 0, 1, 2, 3,  2, 0, 1, 3};
-
-        bool branch_if_true = (f.raw >> 13) & 1;
-        uint8_t reg_idx  = (f.raw >> 9) & 0xF;
-        uint8_t bit_pos  = (f.raw >> 7) & 0x3;
-        int8_t  disp     = static_cast<int8_t>((f.raw & 0x7F) | ((f.raw & 0x40) ? 0x80 : 0));
-        // Sign-extend 7-bit to 8-bit
-
-        uint8_t grp = idx_groups[reg_idx & 0xF];
-        uint8_t sel = idx_selects[reg_idx & 0xF];
         uint8_t val = regs.read(grp, sel) & 0xF;
-        bool bit_value = (val >> bit_pos) & 1;
-
+        // B1700 uses MSB-first numbering: bit(0) = MSB = value 8
+        bool bit_value = (val >> (3 - bit_pos)) & 1;
         bool take_branch = (branch_if_true == bit_value);
 
         if (take_branch) {
-            regs.MAR = (regs.MAR + disp * 16) & MASK_19;
+            if (neg) {
+                regs.MAR = (regs.MAR - disp * 16) & MASK_19;
+            } else {
+                regs.MAR = (regs.MAR + disp * 16) & MASK_19;
+            }
         }
         return 4;
     }
 
-    // ── Bit Test Skip (D-class, MD=0xA) ─────────────────────────────────
-    int exec_bit_test_skip(MicroFields f) {
-        // Layout:
-        //   [15:8] = 0x0A (MC=0000, MD=1010)
-        //   [7]    = sense: 0=skip if bit is FALSE, 1=skip if bit is TRUE
-        //   [6:3]  = register index (4 bits)
-        //   [2:1]  = bit position to test (0-3)
-        //   [0]    = reserved (0)
-        //
-        // Register index → (group, select):
-        //   0:TA(0,0)  1:TB(0,1)  2:TC(0,2)  3:TD(0,3)
-        //   4:TE(1,0)  5:TF(1,1)  6:FU(2,0)  7:FT(2,1)
-        //   8:BICN(12,0)  9:FLCN(12,1)  10:XYCN(12,2)  11:XYST(12,3)
-        //   12:CC(13,2)  13:CA(13,0)  14:CB(13,1)  15:CD(13,3)
-
-        static const uint8_t idx_groups[]  = {0,0,0,0, 1,1, 2,2, 12,12,12,12, 13,13,13,13};
-        static const uint8_t idx_selects[] = {0,1,2,3, 0,1, 0,1, 0, 1, 2, 3,  2, 0, 1, 3};
-
-        bool skip_when_true = (f.raw >> 7) & 1;
-        uint8_t reg_idx = (f.raw >> 3) & 0xF;
-        uint8_t bit_pos = (f.raw >> 1) & 0x3;
-
-        uint8_t grp = idx_groups[reg_idx & 0xF];
-        uint8_t sel = idx_selects[reg_idx & 0xF];
-        uint8_t val = regs.read(grp, sel) & 0xF;
-        bool bit_value = (val >> bit_pos) & 1;
-
-        bool skip = (skip_when_true == bit_value);
-        return skip ? 4 : 2;  // skip next instruction (2 bytes) or continue
-    }
-
     // ── 6C: Skip When ───────────────────────────────────────────────────
     int exec_skip_when(MicroFields f) {
-        // Layout:
-        //   [15:12] = register group (0-3 only; higher conflicts with decode)
-        //   [11:10] = register select (0-3)
-        //   [9:8]   = variant V (0-3)
-        //   [7:4]   = mask / test value
-        //   [3:0]   = 0011 (class identifier)
-        //
-        // Variant meanings:
-        //   V=0: skip if (val & mask) != 0 (any masked bit set)
-        //   V=1: skip if val == mask (exact equality)
-        //   V=2: skip if (val & mask) == 0 (no masked bit set; inverted V=0)
-        //   V=3: skip if (val & mask) != 0, then clear matched bits
+        uint8_t grp     = f.r6c_group();
+        uint8_t sel     = f.r6c_select();
+        uint8_t variant = f.r6c_variant();
+        uint8_t mask    = f.r6c_mask();
 
-        uint8_t src_grp = (f.raw >> 12) & 0xF;
-        uint8_t src_sel = (f.raw >> 10) & 0x3;
-        uint8_t variant = (f.raw >> 8) & 0x3;
-        uint8_t mask    = (f.raw >> 4) & 0xF;
-
-        uint8_t val = regs.read(src_grp, src_sel) & 0xF;
-
+        uint8_t val = regs.read(grp, sel) & 0xF;
         bool skip = false;
+
         switch (variant) {
-            case 0: skip = (val & mask) != 0; break;         // skip if any masked bit set
-            case 1: skip = (val == mask); break;               // skip if exact match
-            case 2: skip = (val & mask) == 0; break;           // skip if none of masked bits set
-            case 3:                                            // skip if any match, then clear
+            case 0: skip = (val & mask) != 0; break;           // any masked bit set
+            case 1: skip = (val == mask); break;                // exact match
+            case 2: skip = (val == mask); break;                // same as V=1 per manual
+            case 3:                                             // any match, then clear
                 skip = (val & mask) != 0;
-                if (skip) {
-                    regs.write(src_grp, src_sel, val & ~mask);
-                }
+                if (skip) regs.write(grp, sel, val & ~mask);
+                break;
+            case 4: skip = (val & mask) == 0; break;           // no masked bits set
+            case 5: skip = (val != mask); break;                // not equal
+            case 6: skip = (val != mask); break;                // same as V=5
+            case 7:                                             // no match, then clear
+                skip = (val & mask) == 0;
+                if (skip) regs.write(grp, sel, val & ~mask);
                 break;
         }
 
         if (skip) {
-            regs.MAR = (regs.MAR + 16) & MASK_19;  // skip next micro
+            regs.MAR = (regs.MAR + 16) & MASK_19;
             return 4;
         }
         return 2;
@@ -304,22 +309,19 @@ private:
 
     // ── 7C: Read/Write Memory ────────────────────────────────────────────
     int exec_memory_access(MicroFields f) {
-        bool is_write = f.mem_is_write();
-        uint8_t reg_id = f.mem_register(); // 0=X,1=Y,2=T,3=L
-        bool reverse   = f.mem_field_reverse();
-        uint8_t flen   = f.mem_field_length();
-        uint8_t count_var = f.mem_count_variant();
+        bool is_write   = f.r7c_is_write();
+        uint8_t reg_id  = f.r7c_register(); // 0=X,1=Y,2=T,3=L
+        bool reverse    = f.r7c_reverse();
+        uint8_t flen    = f.r7c_field_length();
+        uint8_t count_var = f.r7c_count_var();
 
-        // Field length: 0 means use CPL
         if (flen == 0) flen = regs.CPL();
         if (flen == 0) flen = 24;
         if (flen > 24) flen = 24;
 
-        // Save MAR to TEMPB, transfer FA to MAR
         regs.TEMPB = regs.MAR;
         uint32_t bit_addr = regs.FA & MASK_24;
 
-        // Map register ID to actual register pointer
         reg24_t* reg_ptr;
         switch (reg_id) {
             case 0: reg_ptr = &regs.X; break;
@@ -330,45 +332,90 @@ private:
         }
 
         if (is_write) {
-            // Write register to memory
             uint32_t val = *reg_ptr & ((1u << flen) - 1);
             mem.write_field(bit_addr, flen, val, reverse);
         } else {
-            // Read memory to register
             uint32_t val = mem.read_field(bit_addr, flen, reverse);
             *reg_ptr = val & MASK_24;
         }
 
-        // Apply count variant to FA and/or FL
         apply_count_variant(count_var, flen);
-
-        // Restore MAR from TEMPB
         regs.MAR = regs.TEMPB;
-
         return 8;
     }
 
-    // ── 8C / 9C: Literal Move ────────────────────────────────────────────
-    int exec_literal_move(MicroFields f) {
-        uint8_t dst_grp = f.MC();  // MC = dest register group
-        uint8_t dst_sel = 2;       // forced to select 2
+    // ── 8C: Move 8-bit Literal ───────────────────────────────────────────
+    int exec_literal_8(MicroFields f) {
+        uint8_t dst_grp = f.r8c_group();
+        uint8_t literal = f.r8c_literal();
 
-        // Check if this is a 9C (24-bit literal) by looking at MF[3:2]
-        // Actually, 8C vs 9C distinction: if ME:MF encodes a second word fetch.
-        // For simplicity: 8C has an 8-bit literal in MD:ME.
-        // 9C is identified when... this is tricky.
-        //
-        // Practical approach: treat as 8C (8-bit literal).
-        // 9C would need to fetch the next word.  We'll detect 9C by
-        // checking a special encoding. For now, implement 8C:
-
-        uint8_t literal = f.literal8();
-        uint32_t val = literal;
-
-        bool dst_is_mar = (dst_grp == 5 && dst_sel == 0);
-        regs.write(dst_grp, dst_sel, val);
-
+        // 8C always writes to select 2 of the group
+        bool dst_is_mar = (dst_grp == 4);  // group 4 sel 2 = MAR(A)
+        regs.write(dst_grp, 2, static_cast<uint32_t>(literal));
         return dst_is_mar ? 4 : 2;
+    }
+
+    // ── 9C: Move 24-bit Literal ──────────────────────────────────────────
+    int exec_literal_24(MicroFields f) {
+        uint8_t dst_grp = f.r9c_group();
+        uint8_t hi8     = f.r9c_hi8();
+
+        // Fetch the next 16-bit word for the lower 16 bits
+        uint16_t lo16 = mem.fetch_micro(regs.MAR);
+        regs.MAR = (regs.MAR + 16) & MASK_19;
+
+        uint32_t val = (static_cast<uint32_t>(hi8) << 16) | lo16;
+
+        bool dst_is_mar = (dst_grp == 4);
+        regs.write(dst_grp, 2, val);
+        return dst_is_mar ? 6 : 4;
+    }
+
+    // ── 10C: Shift/Rotate T → Destination ────────────────────────────────
+    int exec_shift_rotate_t(MicroFields f) {
+        uint8_t dst_grp = f.r10c_dst_group();
+        uint8_t dst_sel = f.r10c_dst_select();
+        bool is_rotate  = f.r10c_is_rotate();
+        uint8_t count   = f.r10c_count();
+
+        if (count == 0) count = regs.CPL();
+        if (count == 0) count = 24;
+        if (count > 24) count = 24;
+
+        uint32_t val = regs.T & MASK_24;
+
+        if (is_rotate) {
+            count %= 24;
+            val = ((val << count) | (val >> (24 - count))) & MASK_24;
+        } else {
+            val = (val << count) & MASK_24;
+        }
+
+        regs.write(dst_grp, dst_sel, val);
+        return 3;
+    }
+
+    // ── 11C: Extract from T ──────────────────────────────────────────────
+    int exec_extract_from_t(MicroFields f) {
+        uint8_t rotate = f.r11c_rotate();
+        uint8_t dst    = f.r11c_dst();  // 0=X, 1=Y, 2=T, 3=L
+        uint8_t width  = f.r11c_width();
+
+        if (width == 0) width = regs.CPL();
+        if (width == 0) width = 24;
+        if (width > 24) width = 24;
+        if (rotate > 24) rotate = 0;
+
+        uint32_t val = regs.T & MASK_24;
+        if (rotate > 0) {
+            val = ((val >> rotate) | (val << (24 - rotate))) & MASK_24;
+        }
+        uint32_t mask = (width >= 24) ? MASK_24 : ((1u << width) - 1);
+        val &= mask;
+
+        // Write to group 2: X(0), Y(1), T(2), L(3)
+        regs.write(2, dst, val);
+        return 4;
     }
 
     // ── 12C/13C: Branch Relative ─────────────────────────────────────────
@@ -386,10 +433,7 @@ private:
 
     // ── 14C/15C: Call ────────────────────────────────────────────────────
     int exec_call(MicroFields f) {
-        // Push return address (current MAR, which is already next-in-line)
         regs.push(regs.MAR);
-
-        // Branch same as 12C/13C
         bool negative = f.branch_sign();
         uint16_t disp = f.displacement();
 
@@ -405,60 +449,80 @@ private:
     int exec_dispatch(MicroFields f) {
         // ME[7:4] encodes variant:
         //   0 = LOCK + SKIP WHEN UNLOCKED
-        //   1 = WRITE (initiate I/O write)
+        //   1 = WRITE (initiate I/O operation via descriptor in L)
         //   2 = READ AND CLEAR (read I/O result, clear interrupt)
         uint8_t variant = f.ME();
         switch (variant) {
             case 0: // DISPATCH LOCK SKIP WHEN UNLOCKED
-                // In emulation: bus is always available, so lock succeeds.
-                // Skip next instruction (HALT) since lock was acquired.
-                regs.MAR = (regs.MAR + 16) & MASK_19;
+                if (!io.locked()) {
+                    io.lock();
+                    // Lock succeeded — skip next instruction
+                    regs.MAR = (regs.MAR + 16) & MASK_19;
+                } // else: bus busy, fall through (execute next = typically HALT)
                 break;
-            case 1: // DISPATCH WRITE — initiate I/O write
-                // Stub: no actual I/O bus in emulator
-                break;
-            case 2: // DISPATCH READ AND CLEAR — read result, clear interrupt
-                // Clear the bus interrupt bit CC(1)
-                {
-                    uint8_t cc = regs.read(13, 2) & 0xF;
-                    cc &= ~0x02; // clear bit 1 (bus interrupt)
-                    regs.write(13, 2, cc);
+
+            case 1: { // DISPATCH WRITE — initiate I/O operation
+                // The I/O descriptor address is in L register.
+                // T register contains port/channel selection:
+                //   T[7:4] = port number, T[3:0] = channel
+                // In the cold start loader: T = 0x20 = port 2, channel 0.
+                uint32_t desc_addr = regs.L;
+                int port = (regs.T >> 4) & 0xF;
+
+                // Read the full 7-word I/O descriptor from memory
+                IODescriptor desc = read_descriptor(mem, desc_addr);
+
+                if (trace_enabled) {
+                    std::printf("  DISPATCH WRITE port=%d op=%06X ria=%06X "
+                                "A=%06X B=%06X link=%06X\n",
+                                port, desc.op_word, desc.ria,
+                                desc.a_addr, desc.b_addr, desc.link);
                 }
+
+                // Send the descriptor to the addressed I/O control
+                io.dispatch_write(port, desc, mem);
+
+                // Unlock the bus after initiating
+                io.unlock();
                 break;
+            }
+
+            case 2: { // DISPATCH READ AND CLEAR — read result, clear interrupt
+                // Find which port has a service request
+                int port = io.find_requesting_port();
+                if (port >= 0) {
+                    auto* ctrl = io.get(port);
+                    if (ctrl) {
+                        // Set L = RIA + 23 (last address of the RSW field).
+                        // The CSL reads the RSW with READ 24 BITS REVERSE from L,
+                        // which reads addresses [L, L-1, ..., L-23] = [RIA+23..RIA].
+                        uint32_t ria = ctrl->completed_ria();
+                        regs.L = (ria + 23) & MASK_24;
+
+                        // T = port/channel status (bit 23 = access error)
+                        regs.T = (static_cast<uint32_t>(port) << 20) & MASK_24;
+
+                        if (trace_enabled) {
+                            std::printf("  DISPATCH READ AND CLEAR port=%d ria=%06X L=%06X\n",
+                                        port, ria, regs.L);
+                        }
+
+                        ctrl->clear_service_request();
+                    }
+                } else {
+                    // No service request — T(23) = 1 (access error)
+                    regs.T = 0x800000;
+                }
+
+                // Clear CC(1) bus interrupt bit (MSB-first: bit1=0x04)
+                regs.CC &= ~0x04;
+                break;
+            }
+
             default:
                 break; // unknown variant — NOP
         }
         return 2;
-    }
-
-    // ── 2C: Scratchpad Move  /  2E: Cassette Control ————————————————————
-    int exec_scratchpad_move_or_cassette(MicroFields f) {
-        // Distinguish 2C from 2E by ME/MF bits.
-        // 2E has specific encoding pattern.  For now, treat as 2C.
-        uint8_t pad_addr = f.MD();   // scratchpad word 0–15
-        uint8_t reg_grp  = f.ME();   // register group
-        uint8_t reg_sel  = (f.MF() >> 2) & 0x3;
-        uint8_t variant  = f.MF() & 0x3;
-
-        if (pad_addr >= SCRATCHPAD_WORDS) pad_addr = 0;
-
-        auto& word = regs.scratchpad[pad_addr];
-
-        switch (variant) {
-            case 0: // Register → Left scratchpad
-                word.left = regs.read(reg_grp, reg_sel) & MASK_24;
-                break;
-            case 1: // Left scratchpad → Register
-                regs.write(reg_grp, reg_sel, word.left);
-                break;
-            case 2: // Register → Right scratchpad
-                word.right = regs.read(reg_grp, reg_sel) & MASK_24;
-                break;
-            case 3: // Right scratchpad → Register
-                regs.write(reg_grp, reg_sel, word.right);
-                break;
-        }
-        return 3;
     }
 
     // ── 3E: Bias ─────────────────────────────────────────────────────────
@@ -506,10 +570,10 @@ private:
 
     // ── 4D: Shift/Rotate X or Y ─────────────────────────────────────────
     int exec_shift_xy(MicroFields f) {
-        bool is_y     = f.shift4d_reg_is_y();
-        bool is_right = f.shift4d_is_right();
-        bool is_rot   = f.shift4d_is_rotate();
-        uint8_t count = f.shift4d_count();
+        bool is_y     = f.r4d_is_y();
+        bool is_right = f.r4d_is_right();
+        bool is_rot   = f.r4d_is_rot();
+        uint8_t count = f.r4d_count();
         if (count > 24) count = 24;
 
         reg24_t& reg = is_y ? regs.Y : regs.X;
@@ -538,7 +602,7 @@ private:
 
     // ── 5D: Shift X:Y Concatenated ──────────────────────────────────────
     int exec_shift_xy_concat(MicroFields f) {
-        bool is_right = f.shift5d_is_right();
+        bool is_right = f.r5d_is_right();
 
         // Concatenate: X is MSB (bits 47:24), Y is LSB (bits 23:0)
         uint64_t combined = (static_cast<uint64_t>(regs.X & MASK_24) << 24) |
