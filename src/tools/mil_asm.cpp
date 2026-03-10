@@ -56,39 +56,43 @@ struct RegAddr {
 };
 
 static const std::map<std::string, RegAddr> REGISTERS = {
-    // Group 0: T nibbles
+    // Group 0: T nibbles (TA-TD)
     {"TA",   {0, 0, 4}},  {"TB",   {0, 1, 4}},  {"TC",   {0, 2, 4}},  {"TD",   {0, 3, 4}},
-    // Group 1: T nibbles cont.
-    {"TE",   {1, 0, 4}},  {"TF",   {1, 1, 4}},
-    // Group 2: FB nibbles
-    {"FU",   {2, 0, 4}},  {"FT",   {2, 1, 4}},  {"FLC",  {2, 2, 4}},  {"FLD",  {2, 3, 4}},
-    // Group 3: FB nibbles cont.
-    {"FLE",  {3, 0, 4}},  {"FLF",  {3, 1, 4}},
-    // Group 4: main 24-bit
-    {"X",    {4, 0, 24}}, {"Y",    {4, 1, 24}}, {"T",    {4, 2, 24}}, {"L",    {4, 3, 24}},
-    // Group 5: control
-    {"MAR",  {5, 0, 19}}, {"A",    {5, 0, 19}}, {"M",    {5, 1, 16}},
-    {"BR",   {5, 2, 24}}, {"LR",   {5, 3, 24}},
-    // Group 6: function box (read-only)
-    {"SUM",  {6, 0, 24}}, {"CMPX", {6, 1, 24}}, {"CMPY", {6, 2, 24}}, {"XANY", {6, 3, 24}},
-    // Group 7: function box (read-only)
-    {"XEQY", {7, 0, 24}}, {"MSKX", {7, 1, 24}}, {"MSKY", {7, 2, 24}}, {"XORY", {7, 3, 24}},
-    // Group 8: field
-    {"FA",   {8, 0, 24}}, {"FB",   {8, 1, 24}}, {"FL",   {8, 2, 16}}, {"DIFF", {8, 3, 24}},
-    // Group 9: constants
-    {"MAXS", {9, 0, 24}}, {"MAXM", {9, 1, 24}},
-    // Group 10: stack / cassette
-    {"TAS",  {10, 2, 24}}, {"U",    {10, 3, 16}}, {"TOPM", {10, 0, 24}},
-    // Group 11: CP
-    {"CP",   {11, 2, 8}},
-    // Group 12: condition pseudo-regs
-    {"BICN", {12, 0, 4}}, {"FLCN", {12, 1, 4}}, {"XYCN", {12, 2, 4}}, {"XYST", {12, 3, 4}},
-    // Group 13: control
-    {"CA",   {13, 0, 4}}, {"CB",   {13, 1, 4}}, {"CC",   {13, 2, 4}}, {"CD",   {13, 3, 4}},
-    // Group 14: I/O
-    {"CPU",  {14, 0, 4}}, {"READ", {14, 2, 24}}, {"CMND", {14, 3, 24}},
-    // Group 15: I/O and NULL
-    {"WRIT", {15, 0, 24}}, {"NULL", {15, 1, 24}}, {"DATA", {15, 2, 24}},
+    // Group 1: FB nibbles (FU, FT, FLC, FLD)
+    {"FU",   {1, 0, 4}},  {"FT",   {1, 1, 4}},  {"FLC",  {1, 2, 4}},  {"FLD",  {1, 3, 4}},
+    // Group 2: main 24-bit (X, Y, T, L)
+    {"X",    {2, 0, 24}}, {"Y",    {2, 1, 24}}, {"T",    {2, 2, 24}}, {"L",    {2, 3, 24}},
+    // Group 3: function box outputs (read-only)
+    {"SUM",  {3, 0, 24}}, {"CMPX", {3, 1, 24}}, {"CMPY", {3, 2, 24}}, {"XANY", {3, 3, 24}},
+    // Group 4: T nibble TE, FB nibble FLE, MAR(A), XEQY
+    {"TE",   {4, 0, 4}},  {"FLE",  {4, 1, 4}},
+    {"MAR",  {4, 2, 19}}, {"A",    {4, 2, 19}}, {"XEQY", {4, 3, 24}},
+    // Group 5: T nibble TF, FB nibble FLF, M, MSKX
+    {"TF",   {5, 0, 4}},  {"FLF",  {5, 1, 4}},
+    {"M",    {5, 2, 16}}, {"MSKX", {5, 3, 24}},
+    // Group 6: CA, BICN, BR, MSKY
+    {"CA",   {6, 0, 4}},  {"BICN", {6, 1, 4}},
+    {"BR",   {6, 2, 24}}, {"MSKY", {6, 3, 24}},
+    // Group 7: CB, FLCN, LR, XORY
+    {"CB",   {7, 0, 4}},  {"FLCN", {7, 1, 4}},
+    {"LR",   {7, 2, 24}}, {"XORY", {7, 3, 24}},
+    // Group 8: LA, FA, DIFF
+    {"LA",   {8, 0, 4}},  {"FA",   {8, 2, 24}}, {"DIFF", {8, 3, 24}},
+    // Group 9: LB, FB, MAXS
+    {"LB",   {9, 0, 4}},  {"FB",   {9, 2, 24}}, {"MAXS", {9, 3, 24}},
+    // Group 10: LC, FL, MAXM
+    {"LC",   {10, 0, 4}}, {"FL",   {10, 2, 16}}, {"MAXM", {10, 3, 24}},
+    // Group 11: LD, TAS, U
+    {"LD",   {11, 0, 4}}, {"TOPM", {11, 0, 4}}, {"TAS",  {11, 2, 24}}, {"U",    {11, 3, 16}},
+    // Group 12: LE, XYCN, CP
+    {"LE",   {12, 0, 4}}, {"XYCN", {12, 1, 4}},  {"CP",   {12, 2, 8}},
+    // Group 13: LF, XYST, DATA
+    {"LF",   {13, 0, 4}}, {"XYST", {13, 1, 4}},  {"DATA", {13, 3, 24}},
+    // Group 14: CC, READ, CMND
+    {"CC",   {14, 0, 4}}, {"READ", {14, 2, 24}}, {"CMND", {14, 3, 24}},
+    // Group 15: CD, CPU, WRIT, NULL
+    {"CD",   {15, 0, 4}}, {"CPU",  {15, 1, 4}},
+    {"WRIT", {15, 2, 24}}, {"NULL", {15, 3, 24}},
 };
 
 // Scratchpad symbolic names: S0..S15, S0A=left, S0B=right
@@ -134,6 +138,17 @@ struct Assembler {
 
     // Listing
     std::vector<std::string> listing;
+
+    // IF...THEN BEGIN...END block fixup tracking
+    // When IF...THEN is emitted, we record the skip instruction address.
+    // If BEGIN follows, we invert the skip sense and emit a GO TO placeholder.
+    // When END is encountered, we patch the GO TO displacement.
+    uint32_t last_if_skip_addr_ = 0;
+    bool last_if_pending_ = false;
+    struct BlockFixup {
+        uint32_t goto_addr;  // address of the GO TO placeholder to patch
+    };
+    std::vector<BlockFixup> if_block_stack_;
 
     void emit(uint16_t word) {
         if (current_addr >= code.size()) {
@@ -299,17 +314,65 @@ struct Assembler {
 
     // ── Encode 1C register move ─────────────────────────────────────────
     uint16_t encode_1C(RegAddr src, RegAddr dst) {
-        // MC=src_group, MD[3:2]=src_sel, MD[1:0]=variant(0),
-        // ME=dst_group, MF[3:2]=dst_sel, MF[1:0]=00
-        return (src.group << 12) | (src.select << 10) |
-               (dst.group << 4) | (dst.select << 2);
+        // MC=0001, MD=dst_group, ME[7:6]=dst_sel, ME[5:4]=src_sel, MF=src_group
+        return (0x1 << 12) | (dst.group << 8) |
+               (dst.select << 6) | (src.select << 4) | src.group;
+    }
+
+    // ── Encode 3C 4-bit manipulate ──────────────────────────────────────
+    // variant: 0=SET, 1=AND, 2=OR, 3=EOR, 4=INC, 5=INC-T, 6=DEC, 7=DEC-T
+    uint16_t encode_3C(uint8_t group, uint8_t select, uint8_t variant, uint8_t literal) {
+        // MC=0011, MD=group, ME[7]=select, ME[6:4]=variant, MF=literal
+        return (0x3 << 12) | (group << 8) |
+               ((select & 1) << 7) | ((variant & 0x7) << 4) | (literal & 0xF);
+    }
+
+    // ── Encode 4C/5C bit test branch ────────────────────────────────────
+    // branch_if_true: false=4C, true=5C
+    uint16_t encode_4C5C(uint8_t group, uint8_t select, uint8_t bit_pos,
+                          bool neg_disp, uint8_t disp, bool branch_if_true) {
+        // MC=0100 or MC=0101, MD=group, ME[7]=select, ME[6:5]=bit, ME[4]=sign, MF=disp
+        uint8_t mc = branch_if_true ? 0x5 : 0x4;
+        return (mc << 12) | (group << 8) |
+               ((select & 1) << 7) | ((bit_pos & 0x3) << 5) |
+               (neg_disp ? 0x10 : 0) | (disp & 0xF);
+    }
+
+    // ── Encode 6C skip when ─────────────────────────────────────────────
+    // variant: 0-7 (3 bits)
+    uint16_t encode_6C(uint8_t group, uint8_t select, uint8_t variant, uint8_t mask) {
+        // MC=0110, MD=group, ME[7]=select, ME[6:4]=variant, MF=mask
+        return (0x6 << 12) | (group << 8) |
+               ((select & 1) << 7) | ((variant & 0x7) << 4) | (mask & 0xF);
     }
 
     // ── Encode 8C literal ───────────────────────────────────────────────
     uint16_t encode_8C(uint8_t dst_group, uint8_t literal) {
-        // MC=dst_group, MD:ME=literal, MF[1:0]=10
-        // NOTE: 8C always writes to select 2 within the group
-        return (dst_group << 12) | (literal << 4) | 0x02;
+        // MC=1000, MD=dst_group, ME:MF=literal (8 bits)
+        // Always writes to select 2 within the group.
+        return (0x8 << 12) | (dst_group << 8) | (literal & 0xFF);
+    }
+
+    // ── Encode 9C 24-bit literal (first word) ───────────────────────────
+    uint16_t encode_9C(uint8_t dst_group, uint8_t hi8) {
+        // MC=1001, MD=dst_group, ME:MF=hi8
+        // Second word is the lower 16 bits (emitted separately).
+        return (0x9 << 12) | (dst_group << 8) | (hi8 & 0xFF);
+    }
+
+    // ── Encode 10C shift/rotate T ───────────────────────────────────────
+    uint16_t encode_10C(uint8_t dst_group, uint8_t dst_select,
+                         bool is_rotate, uint8_t count) {
+        // MC=1010, MD=dst_group, ME[7:6]=dst_sel, ME[5]=rotate, bits[4:0]=count
+        return (0xA << 12) | (dst_group << 8) |
+               ((dst_select & 0x3) << 6) | (is_rotate ? 0x20 : 0) | (count & 0x1F);
+    }
+
+    // ── Encode 11C extract from T ───────────────────────────────────────
+    uint16_t encode_11C(uint8_t rotate, uint8_t dst_code, uint8_t width) {
+        // MC=1011, MD:ME[7]=rotate(5 bits), ME[6:5]=dst_code, bits[4:0]=width
+        return (0xB << 12) | ((rotate & 0x1F) << 7) |
+               ((dst_code & 0x3) << 5) | (width & 0x1F);
     }
 
     // ── Emit literal to any register (handles select != 2) ──────────────
@@ -318,14 +381,13 @@ struct Assembler {
     void emit_literal(const RegAddr& dst, uint32_t val) {
         bool need_move = (dst.select != 2);
 
-        // Emit the 8C or 9C targeting group's select-2 register
         if (val <= 0xFF) {
             emit(encode_8C(dst.group, val & 0xFF));
         } else {
             // 9C: 24-bit literal (2 words), also writes select 2
             uint8_t hi = (val >> 16) & 0xFF;
             uint16_t lo = val & 0xFFFF;
-            emit((dst.group << 12) | (hi << 4) | 0x02);
+            emit(encode_9C(dst.group, hi));
             emit(lo);
         }
 
@@ -340,36 +402,13 @@ struct Assembler {
     uint16_t encode_7C(bool write, uint8_t reg_id, bool reverse,
                        uint8_t field_len, uint8_t count_var) {
         // MC=0111, MD[11]=dir, MD[10:9]=reg, MD[8]=reverse
-        // ME:MF[7:3]=field_len(upper), MF[2:0]=count_var
-        // Actually: field_len and count_var share the lower byte
-        // The field_len occupies ME:MF upper bits, count_var occupies MF[2:0]
-        // But they overlap. Let me re-read:
-        // Bits [7:0] = combined from ME:MF. Count variant is [2:0].
-        // So field_len goes in [7:3] and count goes in [2:0]?
-        // No — the manual says field_length is the full 8 bits (0-255),
-        // but count_variant is in [2:0] of the raw word.
-        // This means field_len.lower 3 bits and count_var overlap!
-        // Resolution: field_len upper 5 bits in [7:3], count_var in [2:0]
-        // When field_len=0, CPL is used, and count_var can be anything.
-        // When field_len>0, the lower 3 bits ARE the count_var.
-        uint8_t lower = (field_len & 0xF8) | (count_var & 0x07);
-        // Wait, that's wrong for exact field lengths.
-        // Let me just pack them as the manual describes:
-        // The full lower byte is: field_len[7:3] : count_var[2:0]
-        // But the manual says field_len=0 means "use CPL".
-        // So for actual field lengths, the encoding is:
-        //   lower byte = field_len when count_var=0
-        //   lower byte = (field_len & ~7) | count_var  otherwise
-        // This means field lengths not divisible by 8 conflict with count.
-        // In practice, field lengths seen are 4,8,12,16,24,25 - only some overlap.
-        // The real hardware probably uses separate signals.
-        // For our assembler, let's handle it pragmatically:
+        // Bits [7:3] = field_len (0-31, 0="use CPL")
+        // Bits [2:0] = count_var (0-7)
         uint16_t md = (write ? 0x8 : 0) | (reg_id << 1) | (reverse ? 1 : 0);
         uint16_t lower_byte;
         if (field_len == 0) {
             lower_byte = count_var & 0x7;
         } else {
-            // Pack field_len in upper 5 bits, count in lower 3
             lower_byte = ((field_len & 0x1F) << 3) | (count_var & 0x7);
         }
         return 0x7000 | (md << 8) | lower_byte;
@@ -558,6 +597,7 @@ struct Assembler {
 
         // ── DEFINE name _ value [value2 ...] ─────────────────────────────
         if (first == "DEFINE") {
+            if (t.size() < 3) { error("DEFINE: missing name/value"); return false; }
             std::string name = t[1];
             // Strip trailing underscore from name (handles OCR artifact
             // where _ separator is fused with name, e.g.,
@@ -583,13 +623,91 @@ struct Assembler {
         }
 
         // ── Assembler directives ────────────────────────────────────────
-        if (first == "SEGMENT" || first == "OVERLAY" || first == "LOAD-MSMA"
-            || first == "PUNCH" || first == "STOP" || first == "BEGIN"
-            || first == "END" || first == "ELSE") {
+        if (first == "SEGMENT") {
+            // SEGMENT name AT addr → reset assembly address
+            size_t at_pos = find_token(t, "AT");
+            if (at_pos != std::string::npos && at_pos + 1 < t.size()) {
+                auto addr = parse_number(t[at_pos + 1]);
+                if (addr) {
+                    current_addr = *addr;
+                    if (verbose) std::printf("  SEGMENT at word %u\n", current_addr);
+                }
+            }
+            return true;
+        }
+        if (first == "LOAD-MSMA"
+            || first == "PUNCH" || first == "STOP"
+            || first == "ELSE") {
+            last_if_pending_ = false;
             return true; // skip directives
+        }
+        if (first == "OVERLAY") {
+            // OVERLAY instruction: triggers S-memory → M-memory transfer.
+            // Encoded as 0x0001 (unique secondary opcode).
+            emit(0x0001);
+            last_if_pending_ = false;
+            return true;
+        }
+        if (first == "BEGIN") {
+            if (last_if_pending_) {
+                // An IF...THEN was just emitted and is followed by a block.
+                // Invert the skip instruction's sense and emit a GO TO placeholder
+                // that will be patched when END is encountered.
+                uint16_t& prev = code[last_if_skip_addr_];
+                uint8_t mc = (prev >> 12) & 0xF;
+                if (mc == 4) {
+                    prev = (prev & 0x0FFF) | 0x5000; // 4C→5C: invert
+                } else if (mc == 5) {
+                    prev = (prev & 0x0FFF) | 0x4000; // 5C→4C: invert
+                } else if (mc == 6) {
+                    // 6C: invert variant sense (swap TRUE/FALSE skip conditions)
+                    uint8_t variant = (prev >> 4) & 0x7;
+                    uint8_t inv_variant;
+                    switch (variant) {
+                        case 0: inv_variant = 4; break; // any set → no set
+                        case 1: inv_variant = 5; break; // equal → not equal
+                        case 2: inv_variant = 6; break; // equal (alt) → not equal (alt)
+                        case 3: inv_variant = 7; break; // any+clear → none+clear
+                        case 4: inv_variant = 0; break; // no set → any set
+                        case 5: inv_variant = 1; break; // not equal → equal
+                        case 6: inv_variant = 2; break; // not equal (alt) → equal (alt)
+                        case 7: inv_variant = 3; break; // none+clear → any+clear
+                        default: inv_variant = variant; break;
+                    }
+                    prev = (prev & 0xFF8F) | ((inv_variant & 0x7) << 4);
+                }
+                uint32_t goto_addr = current_addr;
+                emit(0xC000); // GO TO +0 placeholder (12C forward)
+                if_block_stack_.push_back({goto_addr});
+                last_if_pending_ = false;
+            }
+            return true;
+        }
+        if (first == "END") {
+            if (!if_block_stack_.empty()) {
+                auto fixup = if_block_stack_.back();
+                if_block_stack_.pop_back();
+                // Patch the GO TO displacement: target is current_addr (next word after END)
+                // At execution: MAR = goto_addr + 1 (already advanced past GO TO instruction)
+                // Then + disp → target. So disp = target - (goto_addr + 1).
+                uint32_t target = current_addr;
+                int32_t disp = static_cast<int32_t>(target)
+                             - static_cast<int32_t>(fixup.goto_addr + 1);
+                if (disp < 0 || disp > 0xFFF) {
+                    warn("BEGIN...END block too large for branch displacement");
+                    if (disp < 0) disp = 0;
+                    else disp = 0xFFF;
+                }
+                code[fixup.goto_addr] = 0xC000 | (static_cast<uint16_t>(disp) & 0xFFF);
+            }
+            return true;
         }
 
         // ── NOP ─────────────────────────────────────────────────────────
+        // Any instruction line after IF...THEN that is not BEGIN means
+        // the IF...THEN has a single-instruction body — disp=1 is correct.
+        last_if_pending_ = false;
+
         if (first == "NOP") {
             emit(0x0000);
             return true;
@@ -604,8 +722,8 @@ struct Assembler {
         // ── EXIT (return = TAS → MAR) ───────────────────────────────────
         // Also handle OCR-garbled "E IT" → EXIT
         if (first == "EXIT" || (first == "E" && t.size() >= 2 && t[1] == "IT")) {
-            // 1C: src=TAS(10,2) dst=MAR(5,0)
-            emit(encode_1C({10, 2, 24}, {5, 0, 19}));
+            // 1C: src=TAS(11,2) dst=MAR(4,2)
+            emit(encode_1C({11, 2, 24}, {4, 2, 19}));
             return true;
         }
 
@@ -726,12 +844,14 @@ struct Assembler {
                 std::string pad_name = t[3];
                 auto pad = resolve_register(pad_name);
                 if (pad && pad->group >= 16) {
-                    // Emit 2C: reg→left  (FA → pad.A)
+                    // Emit 2C: FA(8,2)→pad left, FB(9,2)→pad right
                     uint8_t pad_num = pad->group - 16;
-                    // FA(group3,sel0)→scratchpad left: variant=0
-                    emit(0x0000 | (pad_num << 8) | (3 << 4) | (0 << 2) | 0);
-                    // FB(group3,sel2)→scratchpad right: variant=2
-                    emit(0x0000 | (pad_num << 8) | (3 << 4) | (2 << 2) | 2);
+                    // FA: to_pad, left, reg_sel=2, reg_grp=8
+                    emit(static_cast<uint16_t>(
+                        (0x2 << 12) | (pad_num << 8) | (2 << 4) | 8));
+                    // FB: to_pad, right, reg_sel=2, reg_grp=9
+                    emit(static_cast<uint16_t>(
+                        (0x2 << 12) | (pad_num << 8) | 0x80 | (2 << 4) | 9));
                     return true;
                 }
                 warn("STORE F INTO: unknown target " + pad_name);
@@ -750,7 +870,8 @@ struct Assembler {
             if (t.size() >= 4 && t[2] == "TO") {
                 auto dst = resolve_register(t[3]);
                 if (dst) {
-                    emit(encode_1C({6, 0, 24}, {dst->group, dst->select, dst->width}));
+                    // SUM is group 3, select 0
+                    emit(encode_1C({3, 0, 24}, {dst->group, dst->select, dst->width}));
                     return true;
                 }
             }
@@ -768,15 +889,15 @@ struct Assembler {
                     if (t.size() >= 4 && t[2] == "(") {
                         auto n = parse_number(t[3]);
                         if (n) {
-                            // Clear bit: emit LIT with all bits EXCEPT the target
-                            // This is approximate — a real clear-bit needs AND-mask
-                            // Emit 8C literal 0 to clear the whole nibble for now
-                            emit(encode_8C(reg->group, 0));
+                            // Clear bit: 3C AND with inverse mask
+                            // MSB-first: bit(0) = MSB = value 0x8
+                            uint8_t mask = ~(1u << (3 - (*n & 0x3))) & 0xF;
+                            emit(encode_3C(reg->group, reg->select, 1, mask)); // AND
                             return true;
                         }
                     }
-                    // Clear entire nibble: 8C literal 0
-                    emit(encode_8C(reg->group, 0));
+                    // Clear entire nibble: 3C SET 0
+                    emit(encode_3C(reg->group, reg->select, 0, 0));
                     return true;
                 }
                 if (reg) {
@@ -805,6 +926,7 @@ struct Assembler {
             return false;
         }
         size_t to_pos = find_token(t, "TO", 1);
+        if (to_pos + 1 >= t.size()) { error("MOVE: missing dest after TO"); return false; }
         std::string src_name = t[1];
         std::string dst_name = t[to_pos + 1];
 
@@ -825,16 +947,25 @@ struct Assembler {
 
         // Handle scratchpad → register (2C)
         if (src->group >= 16) {
-            // 2C: MC=0, MD=pad_addr, ME=dst_group, MF[3:2]=dst_sel, MF[1:0]=variant
+            // 2C: MC=0010, MD=pad_addr, ME[7]=L/R, ME[6]=from_pad(1),
+            //     ME[5:4]=reg_sel, MF=reg_group
             uint8_t pad = src->group - 16;
-            uint8_t variant = (src->select == 2) ? 3 : 1; // 1=left→reg, 3=right→reg
-            emit(0x0000 | (pad << 8) | (dst->group << 4) | (dst->select << 2) | variant);
+            bool is_right = (src->select == 2);
+            emit(static_cast<uint16_t>(
+                (0x2 << 12) | (pad << 8) |
+                (is_right ? 0x80 : 0) | 0x40 |  // from_pad=1
+                (dst->select << 4) | dst->group));
             return true;
         }
         if (dst->group >= 16) {
+            // 2C: MC=0010, MD=pad_addr, ME[7]=L/R, ME[6]=from_pad(0=to_pad),
+            //     ME[5:4]=reg_sel, MF=reg_group
             uint8_t pad = dst->group - 16;
-            uint8_t variant = (dst->select == 2) ? 2 : 0; // 0=reg→left, 2=reg→right
-            emit(0x0000 | (pad << 8) | (src->group << 4) | (src->select << 2) | variant);
+            bool is_right = (dst->select == 2);
+            emit(static_cast<uint16_t>(
+                (0x2 << 12) | (pad << 8) |
+                (is_right ? 0x80 : 0) |  // from_pad=0
+                (src->select << 4) | src->group));
             return true;
         }
 
@@ -873,11 +1004,9 @@ struct Assembler {
         // Handle single-argument SET: "SET flag" → set bit/register to 1
         if (to_pos == std::string::npos || t.size() < 4) {
             if (t.size() >= 2) {
-                // t[1] might be a register name, possibly with (bit) following
                 std::string reg_name = t[1];
                 auto reg = resolve_register(reg_name);
                 if (reg) {
-                    // Set register to 1 (or ORed bit if 4-bit)
                     if (reg->width == 4) {
                         // Check for (bit) syntax: SET CC (0)
                         uint8_t bit = 0;
@@ -885,17 +1014,14 @@ struct Assembler {
                             auto n = parse_number(t[3]);
                             if (n) bit = *n & 0x3;
                         }
-                        // 3C SET nibble: set bit within nibble register
-                        // Encode as: read current, OR with bit mask
-                        // Simplified: emit LIT (1 << bit) to the group's sel-2,
-                        // which approximates setting the flag
-                        emit(encode_8C(reg->group, 1u << bit));
+                        // 3C OR with bit mask to set specific bit
+                        // MSB-first: bit(0) = MSB = value 0x8
+                        emit(encode_3C(reg->group, reg->select, 2, 1u << (3 - bit))); // OR
                         return true;
                     }
                     emit_literal(*reg, 1);
                     return true;
                 }
-                // Not a register — might be a DEFINE'd flag
                 warn("SET without TO: unknown register " + reg_name);
                 emit(0x0000);
                 return true;
@@ -905,6 +1031,7 @@ struct Assembler {
         }
 
         std::string reg_name = t[1];
+        if (to_pos + 1 >= t.size()) { error("SET: missing value after TO"); return false; }
         std::string val_str = t[to_pos + 1];
 
         auto reg = resolve_register(reg_name);
@@ -913,6 +1040,13 @@ struct Assembler {
         auto num = parse_number(val_str);
         if (!num) { error("Invalid value: " + val_str); return false; }
 
+        // For 4-bit registers, use 3C SET (variant=0) with 4-bit literal
+        if (reg->width == 4 && *num <= 0xF) {
+            emit(encode_3C(reg->group, reg->select, 0, *num & 0xF));
+            return true;
+        }
+
+        // For wider registers or values > 15, use 8C/9C literal
         emit_literal(*reg, *num);
         return true;
     }
@@ -923,10 +1057,10 @@ struct Assembler {
             auto reg = resolve_register(t[i]);
             if (!reg) { error("Unknown register: " + t[i]); return false; }
             if (reg->width == 4) {
-                // 3C SET to 0: use NULL as source
-                emit(encode_1C({15, 1, 24}, {reg->group, reg->select, reg->width}));
+                // 3C SET to 0
+                emit(encode_3C(reg->group, reg->select, 0, 0));
             } else {
-                // MOVE 0 TO reg via 8C literal (+ MOVE if select != 2)
+                // 8C literal 0 (+ MOVE if select != 2)
                 emit_literal(*reg, 0);
             }
         }
@@ -936,6 +1070,7 @@ struct Assembler {
     // ── READ n BITS [REVERSE] TO reg [INC FA] [AND DEC FL] ─────────────
     bool asm_read(const std::vector<std::string>& t) {
         // READ n BITS [REVERSE] TO reg [INC FA [AND DEC FL]]
+        if (t.size() < 2) { error("READ: expected field length"); return false; }
         size_t idx = 1;
         auto field_len = parse_number(t[idx++]);
         if (!field_len) { error("READ: expected field length"); return false; }
@@ -946,6 +1081,7 @@ struct Assembler {
 
         size_t to_pos = find_token(t, "TO", idx);
         if (to_pos == std::string::npos) { error("READ: expected TO"); return false; }
+        if (to_pos + 1 >= t.size()) { error("READ: missing register after TO"); return false; }
 
         std::string reg_name = t[to_pos + 1];
         int reg_id = reg_to_7C_id(reg_name);
@@ -972,7 +1108,7 @@ struct Assembler {
                 if (n) flen_val = *n;
             }
             if (idx < t.size() && t[idx] == ")") idx++;
-        } else {
+        } else if (idx < t.size()) {
             auto n = parse_number(t[idx++]);
             if (n) flen_val = *n;
         }
@@ -981,6 +1117,7 @@ struct Assembler {
 
         size_t from_pos = find_token(t, "FROM", idx);
         if (from_pos == std::string::npos) { error("WRITE: expected FROM"); return false; }
+        if (from_pos + 1 >= t.size()) { error("WRITE: missing register after FROM"); return false; }
 
         std::string reg_name = t[from_pos + 1];
         int reg_id = reg_to_7C_id(reg_name);
@@ -1030,6 +1167,7 @@ struct Assembler {
         // "BY" at t[3]
         size_t by_pos = find_token(t, "BY", 2);
         if (by_pos == std::string::npos) { error("Expected BY"); return false; }
+        if (by_pos + 1 >= t.size()) { error("SHIFT: missing count after BY"); return false; }
 
         auto count = parse_number(t[by_pos + 1]);
         if (!count) { error("Invalid shift count"); return false; }
@@ -1043,30 +1181,24 @@ struct Assembler {
 
         bool is_right = (direction == "RIGHT");
 
-        // If source is X or Y → 4D shift
+        // If source is X or Y → 4D shift (MC=0, MD=4)
         if ((reg_name == "X" || reg_name == "Y") && dest_name.empty()) {
             bool is_y = (reg_name == "Y");
-            // 4D: MC=0000, MD[11]=reg, MD[10]=right, MD[9]=rotate, MD[8:4]=count
-            uint16_t md = (is_y ? 0x8 : 0) | (is_right ? 0x4 : 0) | (is_rotate ? 0x2 : 0);
+            // D-class: MC=0000, MD=0100, ME[7]=reg, ME[6]=right, ME[5]=rotate,
+            //          bits[4:0]=count
             uint8_t cnt = *count & 0x1F;
-            // count goes in MD[8]:ME (bits 8:4 of raw word)
-            // MD[8] = (cnt >> 4) & 1
-            md = (md & 0xE) | ((cnt >> 4) & 1);
-            uint8_t me = cnt & 0xF;
-            emit(0x0000 | (md << 8) | (me << 4));
+            emit(static_cast<uint16_t>(
+                0x0400 | (is_y ? 0x80 : 0) | (is_right ? 0x40 : 0) |
+                (is_rotate ? 0x20 : 0) | cnt));
             return true;
         }
 
-        // If source is T → 10C shift/rotate T left (with dest)
+        // If source is T → 10C shift/rotate T (with dest)
         if (reg_name == "T") {
             auto dst = dest_name.empty() ? resolve_register("T") : resolve_register(dest_name);
             if (!dst) { error("Unknown dest: " + dest_name); return false; }
-            // 10C: MC=dst_group, MD[11:10]=dst_sel, MD[9]=rotate, MD[8]:ME=count
             uint8_t cnt = *count & 0x1F;
-            uint16_t md = (dst->select << 2) | (is_rotate ? 0x2 : 0) | ((cnt >> 4) & 1);
-            uint8_t me = cnt & 0xF;
-            uint8_t mf = 0; // MF[1:0] = 00 for 10C
-            emit((dst->group << 12) | (md << 8) | (me << 4) | mf);
+            emit(encode_10C(dst->group, dst->select, is_rotate, cnt));
             return true;
         }
 
@@ -1085,6 +1217,7 @@ struct Assembler {
             error("EXTRACT syntax error");
             return false;
         }
+        if (to_pos + 1 >= t.size()) { error("EXTRACT: missing dest after TO"); return false; }
 
         // Parse T(offset): find the offset in parens
         uint8_t rotate_count = 0;
@@ -1101,15 +1234,14 @@ struct Assembler {
         auto dst = resolve_register(dst_name);
         if (!dst) { error("Unknown dest: " + dst_name); return false; }
 
-        // 11C: MC[15:14]=00, bits[13:10]=rotate, bits[9:5]=width, MF[3:2]=dst_code, MF[1:0]=variant
+        // 11C: MC=1011, bits[11:7]=rotate, ME[6:5]=dst_code, bits[4:0]=width
         uint8_t dst_code = 0;
         if (dst_name == "X") dst_code = 0;
         else if (dst_name == "Y") dst_code = 1;
         else if (dst_name == "T") dst_code = 2;
         else if (dst_name == "L") dst_code = 3;
 
-        uint16_t raw = (rotate_count << 10) | ((*width & 0x1F) << 5) | (dst_code << 2);
-        emit(raw);
+        emit(encode_11C(rotate_count, dst_code, *width & 0x1F));
         return true;
     }
 
@@ -1164,82 +1296,17 @@ struct Assembler {
     // For IF...GO TO label: emit 6C skip + branch. The 6C skips the
     //   branch when condition is FALSE, so the branch executes when TRUE.
     // The FALSE keyword inverts the sense.
-
-    // ── Encode 6C Skip When ─────────────────────────────────────────────
-    // 6C format: [15:12]=group, [11:10]=select, [9:8]=variant(2bit),
-    //            [7:4]=mask, [3:0]=0011
     //
-    // IMPORTANT: group must be 0-3 only! Groups 4-7 conflict with 4C/5C
-    // (MC[15:14]=01), groups 8-11 with 8C-11C (MC[15:14]=10), and
-    // groups 12-15 with branch/call (MC[15:14]=11).
-    //
-    // Variant meanings (our emulator):
-    //   V=0: skip if (val & mask) != 0 (any masked bit set)
-    //   V=1: skip if val == mask (exact equality)
-    //   V=2: skip if (val & mask) == 0 (no masked bit set; inverted V=0)
-    //   V=3: skip if (val & mask) != 0, then clear matched bits
-    uint16_t encode_6C(uint8_t group, uint8_t select, uint8_t variant,
-                       uint8_t mask) {
-        if (group > 3) {
-            warn("6C encoding: group " + std::to_string(group) +
-                 " > 3 conflicts with decode tree; use 4C/5C instead");
-        }
-        return ((group & 0xF) << 12) | ((select & 0x3) << 10) |
-               ((variant & 0x3) << 8) | ((mask & 0xF) << 4) | 0x03;
-    }
-
-    // ── Encode 4C/5C Bit Test Branch ────────────────────────────────────
-    // Implemented as D-class secondary (MC=0000, MD=1010=0xA) to avoid
-    // decode tree conflicts with 1C/3C register groups 4-7 and 12C-15C.
-    //
-    // Layout:
-    //   [15:8] = 0x0A (MC=0000, MD=1010)
-    //   [7]    = sense: 0=skip if bit FALSE, 1=skip if bit TRUE
-    //   [6:3]  = register index (4 bits, maps to group/select)
-    //   [2:1]  = bit to test (0-3)
-    //   [0]    = reserved (0)
-    //
-    // This always skips the NEXT instruction (like 6C skip).
-    // For IF...GO TO, emit this + a 12C branch.
-    //
-    // Register index mapping:
-    //   0:TA(0,0)  1:TB(0,1)  2:TC(0,2)  3:TD(0,3)
-    //   4:TE(1,0)  5:TF(1,1)  6:FU(2,0)  7:FT(2,1)
-    //   8:BICN(12,0)  9:FLCN(12,1)  10:XYCN(12,2)  11:XYST(12,3)
-    //   12:CC(13,2)  13:CA(13,0)  14:CB(13,1)  15:CD(13,3)
-
-    static int reg_to_bit_test_index(uint8_t group, uint8_t select) {
-        if (group == 0 && select <= 3) return select;        // 0-3: TA-TD
-        if (group == 1 && select <= 1) return 4 + select;     // 4-5: TE-TF
-        if (group == 2 && select <= 1) return 6 + select;     // 6-7: FU-FT
-        if (group == 12 && select <= 3) return 8 + select;    // 8-11: BICN-XYST
-        if (group == 13 && select <= 3) {                      // 12-15: CC,CA,CB,CD
-            static const int map[] = {13, 14, 12, 15};
-            return map[select];
-        }
-        return -1;
-    }
-
-    uint16_t encode_bit_test_skip(uint8_t group, uint8_t select,
-                                   uint8_t bit_pos, bool skip_when_true) {
-        int idx = reg_to_bit_test_index(group, select);
-        if (idx < 0) {
-            warn("Bit test skip: unsupported register group=" +
-                 std::to_string(group) + " select=" + std::to_string(select));
-            idx = 0;
-        }
-        return 0x0A00 |
-               (skip_when_true ? 0x80 : 0) |
-               ((idx & 0xF) << 3) |
-               ((bit_pos & 0x3) << 1);
-    }
+    // BIT_TEST conditions now use real 4C/5C (MC=4/5) with encode_4C5C.
+    // MULTI_BIT conditions use 6C (MC=6) with encode_6C.
+    // Both can address ALL 16 register groups (no conflicts in new encoding).
 
     // ── Condition Parsing ───────────────────────────────────────────────
 
     struct Condition {
         enum Type { BIT_TEST, MULTI_BIT } type;
         uint8_t group;     // register group
-        uint8_t select;    // register select
+        uint8_t select;    // register select (0 or 1 for 4C/5C; 0-3 for 6C but only 0/1)
         uint8_t bit_pos;   // for BIT_TEST: bit within nibble (0-3)
         uint8_t mask;      // for MULTI_BIT: 6C mask
         bool negate;       // FALSE keyword (or NEQ flips)
@@ -1267,13 +1334,13 @@ struct Assembler {
         // ── Named conditions ────────────────────────────────────────────
         if (first == "HALT-INTERRUPT") {
             c.type = Condition::BIT_TEST;
-            c.group = 13; c.select = 2; c.bit_pos = 0; // CC(0)
+            c.group = 14; c.select = 0; c.bit_pos = 0; // CC(0)
             c.valid = true;
             return c;
         }
         if (first == "INTERRUPT") {
             c.type = Condition::BIT_TEST;
-            c.group = 12; c.select = 3; c.bit_pos = 2; // XYST(2)
+            c.group = 13; c.select = 1; c.bit_pos = 2; // XYST(2)
             c.valid = true;
             return c;
         }
@@ -1284,10 +1351,12 @@ struct Assembler {
                 auto bit_num = parse_number(t[start + 2]);
                 if (bit_num) {
                     uint8_t bn = *bit_num;
-                    uint8_t nibble_idx = bn / 4; // 5=TA, 4=TB, 3=TC, 2=TD, 1=TE, 0=TF
+                    // B1700 MSB-first: T(0)=MSB=TA(0), T(23)=LSB=TF(3)
+                    // nibble_idx: 0=TA, 1=TB, 2=TC, 3=TD, 4=TE, 5=TF
+                    uint8_t nibble_idx = bn / 4;
                     uint8_t bit_within = bn % 4;
-                    static const uint8_t grp[] = {1, 1, 0, 0, 0, 0};
-                    static const uint8_t sel[] = {1, 0, 3, 2, 1, 0};
+                    static const uint8_t grp[] = {0, 0, 0, 0, 4, 5};
+                    static const uint8_t sel[] = {0, 1, 2, 3, 0, 0};
                     if (nibble_idx < 6) {
                         c.type = Condition::BIT_TEST;
                         c.group = grp[nibble_idx];
@@ -1325,11 +1394,11 @@ struct Assembler {
             // X EQL/NEQ/LSS/GTR Y → test specific XYCN bits
             if ((first == "X" || first == "Y") && (rhs == "X" || rhs == "Y")) {
                 c.type = Condition::BIT_TEST;
-                c.group = 12; c.select = 2; // XYCN
-                if (cmp == "EQL") { c.bit_pos = 3; }      // XYCN(3) = X=Y
-                else if (cmp == "NEQ") { c.bit_pos = 2; }  // XYCN(2) = X≠Y
-                else if (cmp == "LSS") { c.bit_pos = 1; }  // XYCN(1) = X<Y
-                else if (cmp == "GTR") { c.bit_pos = 0; }  // XYCN(0) = X>Y
+                c.group = 12; c.select = 1; // XYCN
+                if (cmp == "EQL") { c.bit_pos = 2; }      // XYCN(2) = EQL
+                else if (cmp == "NEQ") { c.bit_pos = 2; c.negate = !c.negate; } // NOT EQL
+                else if (cmp == "LSS") { c.bit_pos = 1; }  // XYCN(1) = LSS
+                else if (cmp == "GTR") { c.bit_pos = 0; }  // XYCN(0) = GTR
                 else if (cmp == "LEQ") {
                     // Multi-bit: XYCN(1)|XYCN(2). Can't single-bit test.
                     // Workaround: test (XYCN & 0x06) != 0 — not available via 4C/5C.
@@ -1348,10 +1417,12 @@ struct Assembler {
             // FL NEQ/EQL 0 → test FLCN(0)
             if (first == "FL" && rhs == "0") {
                 c.type = Condition::BIT_TEST;
-                c.group = 12; c.select = 1; // FLCN
-                c.bit_pos = 0; // FLCN(0) = FL≠0
-                if (cmp == "NEQ") { /* already correct: bit=1 means FL≠0 */ }
-                else if (cmp == "EQL") { c.negate = !c.negate; }
+                c.group = 7; c.select = 1; // FLCN
+                c.bit_pos = 0; // FLCN(0) = 1 when FL IS zero
+                // For NEQ: want to match when FLCN(0)=0 → need negate
+                // For EQL: want to match when FLCN(0)=1 → default (no negate)
+                if (cmp == "NEQ") { c.negate = !c.negate; }
+                else if (cmp == "EQL") { /* default is correct */ }
                 else { return c; }
                 c.valid = true;
                 return c;
@@ -1360,7 +1431,7 @@ struct Assembler {
             // FT NEQ 0 → multi-bit test (any bit of FT set)
             if (first == "FT" && cmp == "NEQ" && rhs == "0") {
                 c.type = Condition::MULTI_BIT;
-                c.group = 2; c.select = 1; // FT (group 2, valid for 6C)
+                c.group = 1; c.select = 1; // FT (group 1, sel 1)
                 c.mask = 0x0F; // all 4 bits
                 c.valid = true;
                 return c;
@@ -1371,19 +1442,13 @@ struct Assembler {
                 auto val = parse_number(rhs);
                 uint8_t test_val = val ? (*val & 0xF) : 0;
                 if (cmp == "EQL" || cmp == "NEQ") {
-                    if (reg->group <= 3) {
-                        // Can use 6C
-                        c.type = Condition::MULTI_BIT;
-                        c.group = reg->group;
-                        c.select = reg->select;
-                        c.mask = test_val;
-                        if (cmp == "NEQ") c.negate = !c.negate;
-                        c.valid = true;
-                    } else {
-                        // High group: approximate with bit test if mask is single bit
-                        warn("Cannot use 6C for group " + std::to_string(reg->group) +
-                             "; approximating");
-                    }
+                    // 6C works for all 16 groups in new encoding (MC=0110)
+                    c.type = Condition::MULTI_BIT;
+                    c.group = reg->group;
+                    c.select = reg->select;
+                    c.mask = test_val;
+                    if (cmp == "NEQ") c.negate = !c.negate;
+                    c.valid = true;
                     return c;
                 }
             }
@@ -1417,23 +1482,26 @@ struct Assembler {
             }
         }
 
-        // ── BIT_TEST conditions: use bit-test-skip (D-class 0xA) ──────────
+        // ── BIT_TEST conditions: use 4C/5C (MC=4/5) bit test branch ────
         if (cond.type == Condition::BIT_TEST) {
-            // sense = false: skip when bit is 0 (condition false)
-            // sense = true:  skip when bit is 1 (condition true)
+            // For skip-next-instruction behavior, use 4C/5C with disp=1.
             //
-            // IF cond THEN: execute next when true → skip when false → sense=false
-            // IF cond FALSE THEN: execute when false → skip when true → sense=true
-            // IF cond GO TO: branch when true → skip branch when false → sense=false
-            // IF cond FALSE GO TO: branch when false → skip branch when true → sense=true
+            // IF cond THEN: execute next when true → skip when false → branch when bit=0 → MC=5
+            // IF cond FALSE THEN: execute when false → skip when true → branch when bit=1 → MC=4
+            // IF cond GO TO: skip branch when false → branch when bit=0 → MC=5, then 12C
+            // IF cond FALSE GO TO: skip branch when true → branch when bit=1 → MC=4, then 12C
             //
-            // In all cases: sense = cond.negate
+            // sense = cond.negate: false → skip when bit=0 (MC=4), true → skip when bit=1 (MC=5)
+            // branch_if_true = sense (skip_when_true maps directly to branch_if_true)
             bool sense = cond.negate;
-            emit(encode_bit_test_skip(cond.group, cond.select,
-                                       cond.bit_pos, sense));
+            last_if_skip_addr_ = current_addr;
+            emit(encode_4C5C(cond.group, cond.select,
+                              cond.bit_pos, false, 1, sense));
             if (is_goto) {
+                last_if_pending_ = false;
                 return emit_branch(t[goto_to + 1], false);
             }
+            last_if_pending_ = true;
             return true;
         }
 
@@ -1451,29 +1519,30 @@ struct Assembler {
             //
             // Strategy:
             //   - mask=0x0F, negate=false: "any bit set" condition (like FT NEQ 0)
-            //     → skip when FALSE: V=2 (skip when no masked bit set)
-            //     → skip when TRUE: V=0 (skip when any masked bit set)
+            //     → skip THEN when FALSE (no bits set) → V=4 (skip when (val & mask) == 0)
+            //     → skip THEN when TRUE (bits set)     → V=0 (skip when (val & mask) != 0)
             //   - mask=val, negate=false: "equals val" condition (like reg EQL val)
             //     → skip when FALSE: V=1 with mask=val then negate... use V=1 for equal
 
             uint8_t variant;
             if (cond.mask == 0x0F || (cond.mask != 0 && cond.mask != 0x0F)) {
-                // "Any of these bits" or "all these bits" pattern
+                // "Any of these bits" pattern
                 if (is_goto) {
                     // Skip branch when condition is false, let it run when true
                     if (!cond.negate) {
-                        // Condition true = bits set → skip when NOT set → V=2
-                        variant = 2;
+                        // Skip GO TO when condition FALSE (no bits set) → V=4
+                        variant = 4;
                     } else {
-                        // Negated: condition true = bits NOT set → skip when set → V=0
+                        // Negated: skip GO TO when condition FALSE (bits set) → V=0
                         variant = 0;
                     }
                 } else {
                     // IF...THEN: skip next when condition is false
                     if (!cond.negate) {
-                        // Condition true = bits set → false = not set → V=2
-                        variant = 2;
+                        // Skip THEN when no bits set → V=4
+                        variant = 4;
                     } else {
+                        // Skip THEN when bits set → V=0
                         variant = 0;
                     }
                 }
@@ -1482,51 +1551,7 @@ struct Assembler {
                 // Exact equality check (mask is the value to compare)
                 if (is_goto) {
                     if (!cond.negate) {
-                        // Branch when equal → skip when NOT equal
-                        // V=1 skips when equal → we need skip when NOT equal
-                        // Use two instructions: V=1 skip + NOP, then branch after
-                        // Or: just accept that V=1 skips when equal (opposite)
-                        // For IF reg EQL val GO TO: skip branch when reg≠val
-                        // This needs "skip when not equal" — but we don't have it
-                        // with V=0-3 easily. Approximate with V=1 and invert:
-                        // Actually, for EQL: the negate flag handles it.
-                        // parse_condition sets negate=false for EQL.
-                        // We want skip when NOT equal. V=1 skips when EQUAL.
-                        // Hmm, we need V that skips when not equal.
-                        // We don't have that cleanly. Workaround:
-                        // Emit V=1 which skips when EQUAL, followed by a
-                        // branch over the branch... that's 3 instructions.
-                        // Or: just use V=1 to skip when equal + a NOP between:
-                        //   V=1 (skip when reg==mask) → skip 12C
-                        //   12C branch to label
-                        // This skips the branch when equal. We want skip when NOT equal.
-                        // WRONG sense.
-                        //
-                        // Sigh. For exact equality with GO TO, emit:
-                        //   V=1 (skip when equal) → skip NOP
-                        //   NOP
-                        //   V=0 (always falls through... no, V=0 with mask=0xF
-                        //        skips when any bit set)
-                        //
-                        // SIMPLEST: emit V=1 (skip when equal), then 12C to a skip
-                        // label, then the actual branch:
-                        //   emit V=1 skips +2 when equal (skip both NOP and branch)
-                        //   emit 12C branch to label
-                        //   ...but V=1 can only skip +1 (next instruction).
-                        //
-                        // Best practical solution: for exact equality GO TO,
-                        // use V=1 which skips when equal (wrong sense), and
-                        // put a branch AROUND the code:
-                        //   6C V=1 skip (skips when equal → skips branch)
-                        //   12C branch to label
-                        // This means: when equal, SKIP the branch (don't go).
-                        // When NOT equal, DON'T skip, execute the branch.
-                        //
-                        // That's IF reg NEQ val GO TO. But we want EQL.
-                        // So for EQL, swap: skip when NOT equal instead.
-                        // There's no direct "skip when not equal" in V=0-3.
-                        //
-                        // Resolution: for exact equality, just emit two 4C/5C
+                        //just emit two 4C/5C
                         // bit tests if possible, or warn. This case doesn't
                         // appear in the cold start loader, so just warn.
                         warn("Exact equality GO TO not fully supported");
@@ -1552,8 +1577,11 @@ struct Assembler {
                 emit(encode_6C(cond.group, cond.select, variant, cond.mask));
             }
             if (is_goto) {
+                last_if_pending_ = false;
                 return emit_branch(t[goto_to + 1], false);
             }
+            last_if_skip_addr_ = current_addr - 1;
+            last_if_pending_ = true;
             return true;
         }
 
@@ -1575,13 +1603,16 @@ struct Assembler {
         }
 
         // Handle "SKIP WHEN UNLOCKED" — test BICN(0), skip when bus not locked
+        // BICN is now group 6, select 1
         if (t.size() >= 3 && t[2] == "UNLOCKED") {
-            emit(encode_bit_test_skip(12, 0, 0, false));
+            // Skip when BICN(0) = 0 → branch when bit=0 → MC=4 → branch_if_true=false
+            emit(encode_4C5C(6, 1, 0, false, 1, false));
             return true;
         }
 
         // ── X vs Y comparisons → XYCN bit tests ────────────────────────
-        // XYCN bits: 0=X>Y, 1=X<Y, 2=X≠Y, 3=X=Y
+        // XYCN is group 12, select 1
+        // XYCN bits: 0=GTR, 1=LSS, 2=EQL, 3=MSBX
         if (t.size() >= 5 &&
             (t[2] == "X" || t[2] == "Y") &&
             (t[4] == "X" || t[4] == "Y") &&
@@ -1590,19 +1621,22 @@ struct Assembler {
             bool is_false = has_token(t, "FALSE", 4);
             uint8_t bit_pos = 0;
             bool skt = true; // skip when bit = 1 (condition true)
-            if      (cmp == "EQL") { bit_pos = 3; skt = true; }
-            else if (cmp == "NEQ") { bit_pos = 2; skt = true; }
+            if      (cmp == "EQL") { bit_pos = 2; skt = true; }
+            else if (cmp == "NEQ") { bit_pos = 2; skt = false; } // NOT EQL
             else if (cmp == "LSS") { bit_pos = 1; skt = true; }
             else if (cmp == "GTR") { bit_pos = 0; skt = true; }
             else if (cmp == "LEQ") { bit_pos = 0; skt = false; } // NOT GTR
             else if (cmp == "GEQ") { bit_pos = 1; skt = false; } // NOT LSS
             else { error("Unknown comparison: " + cmp); return false; }
             if (is_false) skt = !skt;
-            emit(encode_bit_test_skip(12, 2, bit_pos, skt));
+            // skt=true: skip when bit=1 → branch when bit=1 → MC=5 → branch_if_true=true
+            // skt=false: skip when bit=0 → branch when bit=0 → MC=4 → branch_if_true=false
+            emit(encode_4C5C(12, 1, bit_pos, false, 1, skt));
             return true;
         }
 
         // ── FL comparisons → FLCN bit tests ────────────────────────────
+        // FLCN is now group 7, select 1
         // FLCN bits: 0=FL=0, 1=FL=SFA-SFB, 2=FL>SFA-SFB, 3=FL=SFL
         if (t.size() >= 5 && t[2] == "FL") {
             std::string cmp = t[3];
@@ -1610,7 +1644,9 @@ struct Assembler {
             auto val = parse_number(t[4]);
             if (val && *val == 0 && (cmp == "EQL" || cmp == "NEQ")) {
                 bool want_skip_when_zero = (cmp == "EQL") ^ is_false;
-                emit(encode_bit_test_skip(12, 1, 0, want_skip_when_zero));
+                // want_skip_when_zero=true: skip when FLCN(0)=1 → branch when bit=1 → MC=5
+                // want_skip_when_zero=false: skip when FLCN(0)=0 → branch when bit=0 → MC=4
+                emit(encode_4C5C(7, 1, 0, false, 1, want_skip_when_zero));
                 return true;
             }
         }
@@ -1622,9 +1658,9 @@ struct Assembler {
         std::string cmp = (t.size() > 3) ? t[3] : "";
         bool is_false = has_token(t, "FALSE", 3);
 
-        // Determine skip encoding based on register group
-        if (reg->group <= 3) {
-            // Can use 6C for nibble registers in groups 0-3
+        // 6C now works for all 16 groups (MC=0110, MD=group in new encoding)
+        if (reg->width == 4) {
+            // Use 6C for nibble register comparisons
             uint8_t test_val = 0;
 
             if (cmp == "EQL" || cmp == "NEQ") {
@@ -1637,22 +1673,15 @@ struct Assembler {
                 }
                 // Normalize: EQL FALSE ↔ NEQ, NEQ FALSE ↔ EQL
                 bool want_neq = (cmp == "NEQ") ^ is_false;
-                // want_neq=true: skip when reg ≠ test_val
-                // want_neq=false: skip when reg == test_val
+                // want_neq=true: skip when reg ≠ test_val → V=5
+                // want_neq=false: skip when reg == test_val → V=1
 
                 if (!want_neq) {
-                    // Skip when equal: V=1 (single instruction)
+                    // Skip when equal: V=1 (exact match)
                     emit(encode_6C(reg->group, reg->select, 1, test_val));
-                } else if (test_val == 0) {
-                    // Skip when ≠ 0: V=0 mask=0xF (any bit set)
-                    emit(encode_6C(reg->group, reg->select, 0, 0xF));
                 } else {
-                    // Skip when ≠ non-zero value: two-word pattern
-                    //   W1: V=1 mask=val → skip W2 when equal
-                    //   W2: V=2 mask=0   → unconditional skip (always true)
-                    // Net effect: skip next instruction when NOT equal
-                    emit(encode_6C(reg->group, reg->select, 1, test_val));
-                    emit(encode_6C(reg->group, reg->select, 2, 0));
+                    // Skip when not equal: V=5
+                    emit(encode_6C(reg->group, reg->select, 5, test_val));
                 }
             } else if (cmp == "LSS" || cmp == "GTR" || cmp == "LEQ" || cmp == "GEQ") {
                 uint8_t variant = 0;
@@ -1660,15 +1689,15 @@ struct Assembler {
                 else if (cmp == "GTR") test_val = 0x01;
                 else if (cmp == "LEQ") test_val = 0x06;
                 else test_val = 0x05;
-                if (is_false) variant = 2; // invert: none set
+                if (is_false) variant = 4; // invert: skip when no masked bits set
                 emit(encode_6C(reg->group, reg->select, variant, test_val));
             } else {
                 // No comparison: SKIP WHEN reg (any bit set)
-                uint8_t variant = is_false ? 2 : 0;
+                uint8_t variant = is_false ? 4 : 0; // V=4: none set, V=0: any set
                 emit(encode_6C(reg->group, reg->select, variant, 0x0F));
             }
         } else {
-            // High group — must use bit-test-skip for single-bit test
+            // Non-nibble register: use 4C/5C single-bit test
             uint8_t bit_pos = 0;
             if (cmp == "EQL" || cmp == "NEQ") {
                 for (size_t i = 4; i < t.size(); i++) {
@@ -1679,7 +1708,8 @@ struct Assembler {
                 }
             }
             bool sense = is_false;
-            emit(encode_bit_test_skip(reg->group, reg->select, bit_pos, sense));
+            // sense=true: skip when bit=1 → MC=5; sense=false: skip when bit=0 → MC=4
+            emit(encode_4C5C(reg->group, reg->select, bit_pos, false, 1, sense));
         }
         return true;
     }
@@ -1693,6 +1723,7 @@ struct Assembler {
 
         size_t by_pos = find_token(t, "BY");
         if (by_pos == std::string::npos) { error("COUNT: expected BY"); return false; }
+        if (by_pos + 1 >= t.size()) { error("COUNT: missing amount after BY"); return false; }
         auto amount = parse_number(t[by_pos + 1]);
         if (!amount) { error("COUNT: invalid amount"); return false; }
 
@@ -1718,6 +1749,7 @@ struct Assembler {
         std::string reg_name = t[1];
         size_t by_pos = find_token(t, "BY");
         if (by_pos == std::string::npos) { error("Expected BY"); return false; }
+        if (by_pos + 1 >= t.size()) { error("INC/DEC: missing amount after BY"); return false; }
         auto amount = parse_number(t[by_pos + 1]);
         if (!amount) { error("Invalid amount"); return false; }
 
@@ -1726,18 +1758,10 @@ struct Assembler {
 
         if (reg->width == 4) {
             // 3C INC/DEC nibble:
-            // For 4-bit registers, we can use a 3C SET variant to increment.
-            // The 3C instruction has an INC NIBBLE form when variant=11.
-            // Encode: MC=src_group, MD[11:10]=src_sel, MD[9:8]=variant(3=INC),
-            //         ME=amount, MF[3:2]=dst_sel, MF[1:0]=01
-            // Simplified: use 3C with variant 3 (increment) for INC,
-            //             or variant 2 (decrement) for DEC
-            uint8_t variant = is_dec ? 2 : 3;
+            // 3C variants: 0=SET, 1=AND, 2=OR, 3=EOR, 4=INC, 5=INC-T, 6=DEC, 7=DEC-T
+            uint8_t variant = is_dec ? 6 : 4;
             uint8_t amt = (*amount) & 0xF;
-            uint16_t word = (reg->group << 12) | (reg->select << 10) |
-                            (variant << 8) | (amt << 4) |
-                            (reg->select << 2) | 0x01;
-            emit(word);
+            emit(encode_3C(reg->group, reg->select & 1, variant, amt));
         } else if (reg_name == "FA" || reg_name == "FL") {
             // Use COUNT
             uint8_t count_var = 0;
