@@ -345,6 +345,176 @@ static TapeLabel parse_label(const uint8_t* data, size_t len) {
     return label;
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// FILE CLASSIFICATION
+// ══════════════════════════════════════════════════════════════════════════
+
+static bool is_ebcdic_text(const uint8_t* data, size_t len) {
+    if (len == 0) return false;
+    int printable = 0;
+    for (size_t i = 0; i < len; ++i) {
+        uint8_t b = data[i];
+        if (b == 0x40 || (b >= 0x4B && b <= 0x7F) ||
+            (b >= 0x81 && b <= 0xA9) || (b >= 0xC1 && b <= 0xE9) ||
+            (b >= 0xF0 && b <= 0xF9) || b == 0x00) {
+            printable++;
+        }
+    }
+    return (static_cast<int>(printable * 100 / len)) > 70;
+}
+
+static FileClass classify_file(const TapeFile& tf) {
+    if (tf.records.empty()) return FileClass::EMPTY;
+
+    // Check if it's a label
+    if (!tf.records.empty() && tf.records[0].length >= 4) {
+        auto lt = identify_label(tf.records[0].data.data(), tf.records[0].length);
+        if (lt != LabelType::UNKNOWN) return FileClass::LABEL;
+    }
+
+    // Check for TAPDIR
+    if (!tf.records.empty() && tf.records[0].length >= 10) {
+        std::string text = ebcdic_to_string(tf.records[0].data.data(),
+                                             std::min<size_t>(tf.records[0].length, 80));
+        if (text.find("TAPDIR") != std::string::npos ||
+            text.find("DIRECTORY") != std::string::npos) {
+            return FileClass::TAPDIR;
+        }
+    }
+
+    // Check for Burroughs 1812-byte data blocks or common sizes
+    for (const auto& r : tf.records) {
+        if (r.length == 1812 || r.length == 1800 || r.length == 180 ||
+            r.length == 360 || r.length == 900 || r.length == 1200) {
+            return FileClass::OBJECT_CODE;
+        }
+    }
+
+    // Check if text
+    if (!tf.records.empty() && is_ebcdic_text(tf.records[0].data.data(),
+                                                std::min<size_t>(tf.records[0].length, 256))) {
+        return FileClass::TEXT_DATA;
+    }
+
+    return FileClass::BINARY_DATA;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// FULL TAPE ANALYSIS
+// ══════════════════════════════════════════════════════════════════════════
+
+struct TapeAnalysis {
+    std::string tape_path;
+    std::string volume_serial;
+    std::string volume_owner;
+    std::vector<TapeFile> files;
+    std::vector<AnalyzedFile> analyzed;
+    uint64_t total_bytes = 0;
+    uint64_t total_records = 0;
+    uint64_t total_errors = 0;
+    std::map<std::string, int> name_index;
+};
+
+static TapeAnalysis analyze_tape(const std::string& path, bool verbose) {
+    TapeAnalysis ta;
+    ta.tape_path = path;
+
+    ta.files = read_tape(path, verbose);
+
+    std::optional<TapeLabel> pending_hdr;
+
+    for (size_t i = 0; i < ta.files.size(); ++i) {
+        auto& tf = ta.files[i];
+        AnalyzedFile af;
+        af.file_number = tf.file_number;
+        af.records = &tf.records;
+        af.total_bytes = tf.total_bytes;
+        af.classification = classify_file(tf);
+
+        ta.total_bytes += tf.total_bytes;
+        ta.total_records += tf.records.size();
+        for (const auto& r : tf.records) {
+            if (r.error) ta.total_errors++;
+        }
+
+        if (af.classification == FileClass::LABEL && !tf.records.empty()) {
+            TapeLabel label = parse_label(tf.records[0].data.data(),
+                                           tf.records[0].data.size());
+            switch (label.type) {
+                case LabelType::VOL1:
+                    ta.volume_serial = label.volume_serial;
+                    ta.volume_owner = label.owner;
+                    af.label_name = "VOL1";
+                    af.description = "Volume: " + label.volume_serial +
+                                     " Owner: " + label.owner;
+                    break;
+                case LabelType::HDR1:
+                    pending_hdr = label;
+                    af.label_name = "HDR1:" + label.file_id;
+                    af.description = "Header: " + label.file_id +
+                                     " seq=" + std::to_string(label.sequence_number);
+                    af.hdr_label = label;
+                    break;
+                case LabelType::EOF1:
+                    af.label_name = "EOF1";
+                    af.description = "End of file" +
+                        (label.block_count > 0 ?
+                         " (" + std::to_string(label.block_count) + " blocks)" : "");
+                    af.eof_label = label;
+                    break;
+                default:
+                    af.label_name = label.raw_text.substr(0, 4);
+                    af.description = "Label: " + label.raw_text.substr(0, 40);
+                    break;
+            }
+        } else {
+            if (pending_hdr.has_value()) {
+                af.label_name = pending_hdr->file_id;
+                af.hdr_label = pending_hdr;
+                ta.name_index[pending_hdr->file_id] = static_cast<int>(ta.analyzed.size());
+                pending_hdr.reset();
+            }
+
+            uint32_t min_rec = UINT32_MAX, max_rec = 0;
+            for (const auto& r : tf.records) {
+                min_rec = std::min(min_rec, r.length);
+                max_rec = std::max(max_rec, r.length);
+            }
+            if (tf.records.empty()) { min_rec = 0; max_rec = 0; }
+
+            char buf[128];
+            switch (af.classification) {
+                case FileClass::TAPDIR:
+                    af.description = "Tape directory";
+                    break;
+                case FileClass::OBJECT_CODE:
+                    snprintf(buf, sizeof(buf), "Object code (%zu recs, %u-%u bytes/rec)",
+                             tf.records.size(), min_rec, max_rec);
+                    af.description = buf;
+                    break;
+                case FileClass::TEXT_DATA:
+                    snprintf(buf, sizeof(buf), "Text data (%zu recs, %u bytes/rec)",
+                             tf.records.size(), min_rec);
+                    af.description = buf;
+                    break;
+                case FileClass::BINARY_DATA:
+                    snprintf(buf, sizeof(buf), "Binary data (%zu recs, %u-%u bytes)",
+                             tf.records.size(), min_rec, max_rec);
+                    af.description = buf;
+                    break;
+                case FileClass::EMPTY:
+                    af.description = "Empty";
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        ta.analyzed.push_back(std::move(af));
+    }
+
+    return ta;
+}
 
 
 // Backward-compatible simple list
