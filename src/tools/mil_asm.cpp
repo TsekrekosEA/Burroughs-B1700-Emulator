@@ -545,11 +545,8 @@ struct Assembler {
             if (treat_as_label) {
                 label_def = first_word;
                 // Remove the label from the line, leaving the rest as instruction
-                size_t label_start = line.find(first_word);
-                if (label_start != std::string::npos) {
-                    size_t label_end = label_start + first_word.size();
-                    line = (label_end < line.size()) ? line.substr(label_end) : "";
-                }
+                size_t label_end = leading_spaces + first_word.size();
+                line = (label_end < line.size()) ? line.substr(label_end) : "";
             }
         }
 
@@ -1558,27 +1555,19 @@ struct Assembler {
                 // Exact equality check (mask is the value to compare)
                 if (is_goto) {
                     if (!cond.negate) {
-                        // I give up here, might try and re-implement exact equality checks with multiple 4C/5C tests in the future.
-                        // for exact equality, just emit two 4C/5C
-                        // bit tests if possible, or warn. This case doesn't
-                        // appear in the cold start loader, so just warn.
-                        warn("Exact equality GO TO not fully supported");
-                        variant = 1; // best effort
+                        // EQL: skip branch when not equal
+                        variant = 5;
                     } else {
-                        // Negated EQL = NEQ: branch when not equal
-                        // Skip when equal → V=1
+                        // NEQ: skip branch when equal
                         variant = 1;
                     }
                 } else {
-                    // IF...THEN
+                    // IF...THEN: skip next instruction when condition is false
                     if (!cond.negate) {
-                        // EQL: execute when equal, skip when not equal
-                        // V=1 skips when equal. WRONG. We need skip when NOT equal.
-                        // Workaround: this case doesn't appear in cold_start_loader.
-                        warn("Exact equality THEN with groups 0-3 — approximated");
-                        variant = 1;
+                        // EQL: skip THEN when not equal
+                        variant = 5;
                     } else {
-                        // NEQ: execute when NOT equal, skip when equal → V=1
+                        // NEQ: skip THEN when equal
                         variant = 1;
                     }
                 }
@@ -1893,22 +1882,39 @@ int main(int argc, char** argv) {
     if (argc < 2) { show_usage(argv[0]); return 1; }
 
     std::string source_path;
-    std::string output_path = "out.bin";
+    std::string output_path;
     std::string hex_path;
     bool do_list = false;
     bool verbose = false;
 
+    std::vector<std::string> pos_args;
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
         if (arg == "-o" && i + 1 < argc) { output_path = argv[++i]; }
         else if (arg == "--hex" && i + 1 < argc) { hex_path = argv[++i]; }
         else if (arg == "--list") { do_list = true; }
         else if (arg == "--verbose") { verbose = true; }
-        else if (arg[0] != '-') { source_path = arg; }
+        else if (arg[0] != '-') { pos_args.push_back(arg); }
         else { show_usage(argv[0]); return 1; }
     }
 
-    if (source_path.empty()) { show_usage(argv[0]); return 1; }
+    if (pos_args.empty()) { show_usage(argv[0]); return 1; }
+    source_path = pos_args[0];
+    if (pos_args.size() > 1 && output_path.empty()) {
+        output_path = pos_args[1];
+    }
+
+    if (output_path.empty()) {
+        std::string base = source_path;
+        auto last_slash = base.find_last_of("/\\");
+        if (last_slash != std::string::npos)
+            base = base.substr(last_slash + 1);
+
+        auto dot = base.rfind('.');
+        if (dot != std::string::npos)
+            base = base.substr(0, dot);
+        output_path = base + ".bin";
+    }
 
     Assembler as;
     as.verbose = verbose;

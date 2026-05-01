@@ -522,7 +522,8 @@ private:
                     }
                 } else {
                     // No service request — T(23) = 1 (access error)
-                    regs.T = 0x800000;
+                    // B1700 uses MSB-first bit numbering, so bit 23 is the LSB.
+                    regs.T = 0x000001;
                 }
 
                 // Clear CC(1) bus interrupt bit (MSB-first: bit1=0x04)

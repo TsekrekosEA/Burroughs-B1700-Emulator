@@ -130,8 +130,8 @@ This produces 6 executables:
 ### Verify
 
 ```bash
-./b1700 --test          # Run 28 built-in tests
-./b1700_tests           # Run unit test suite
+./b1700 --test          # Run built-in self-tests
+./b1700_tests           # Run 28 unit tests
 ```
 
 ---
@@ -142,7 +142,7 @@ This produces 6 executables:
 
 ```bash
 # Assemble the CSL from original 1972 MIL source
-./mil_asm ../artifacts/cards/cold_start_loader.mil cold_start_loader.bin
+./mil_asm ../artifacts/cards/cold_start_loader.mil
 
 # Boot it
 ./b1700 --load cold_start_loader.bin --run
@@ -158,7 +158,7 @@ Expected output: CSL executes 4,317 cycles, processes EMV card deck, reaches OVE
 ./scalc_asm ../artifacts/programs/demo1.scalc demo1.bin
 
 # Run: load interpreter microcode + S-code program
-./b1700 --interp s_calc.bin --scode demo1.bin --run
+./b1700 --interp s_calc_interp.bin --scode demo1.bin --run
 ```
 
 ```
@@ -170,15 +170,15 @@ System halted at cycle 330  MAR=0x000F0
 
 ```bash
 # Assemble both interpreters
-./mil_asm ../artifacts/interpreters/s_calc_interp.mil s_calc.bin
-./mil_asm ../artifacts/interpreters/s_fort_interp_gismo.mil s_fort.bin
+./mil_asm ../artifacts/interpreters/s_calc_interp.mil
+./mil_asm ../artifacts/interpreters/s_fort_interp_gismo.mil
 
 # Compile both programs
-./scalc_asm ../artifacts/programs/gismo_calc.scalc calc.bin
-./sfort_asm ../artifacts/programs/gismo_fib.sfort fib.bin
+./scalc_asm ../artifacts/programs/gismo_calc.scalc
+./sfort_asm ../artifacts/programs/gismo_fib.sfort
 
 # Run with interpreter switching (quantum = 50 micro-cycles per slice)
-./b1700 --gismo s_calc.bin calc.bin s_fort.bin fib.bin --quantum 50
+./b1700 --gismo s_calc_interp.bin s_fort_interp_gismo.bin gismo_calc.bin gismo_fib.bin --quantum 50
 ```
 
 ```

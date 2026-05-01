@@ -327,7 +327,8 @@ public:
         }
 
         // Write RSW to RIA in reverse (TA(0)=1 complete, TA(1)=0 no exceptions)
-        // MSB-first: TA(0) = bit 23 = value 0x800000
+        // B1700 MSB-first: TA is the upper 4 bits of T (bits 0-3).
+        // TA(0) is bit 0 of T, which is value 0x800000.
         mem_->write_field(desc_.ria + 23, 24, 0x800000, /*reverse=*/true);
         service_request_ = true;
     }

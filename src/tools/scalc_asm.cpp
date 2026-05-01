@@ -55,10 +55,11 @@ static void print_usage() {
 }
 
 int main(int argc, char* argv[]) {
-    const char* input_file = nullptr;
+    std::string input_file;
     std::string output_file;
     bool verbose = false;
 
+    std::vector<std::string> pos_args;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "-o") == 0 && i + 1 < argc) {
             output_file = argv[++i];
@@ -67,28 +68,36 @@ int main(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "-h") == 0 || std::strcmp(argv[i], "--help") == 0) {
             print_usage();
             return 0;
-        } else {
-            input_file = argv[i];
+        } else if (argv[i][0] != '-') {
+            pos_args.push_back(argv[i]);
         }
     }
 
-    if (!input_file) {
+    if (pos_args.empty()) {
         print_usage();
         return 1;
     }
+    input_file = pos_args[0];
+    if (pos_args.size() > 1 && output_file.empty()) {
+        output_file = pos_args[1];
+    }
 
-    // Default output: replace extension with .bin
+    // Default output: replace extension with .bin, strip path
     if (output_file.empty()) {
-        output_file = input_file;
-        auto dot = output_file.rfind('.');
+        std::string base = input_file;
+        auto last_slash = base.find_last_of("/\\");
+        if (last_slash != std::string::npos)
+            base = base.substr(last_slash + 1);
+
+        auto dot = base.rfind('.');
         if (dot != std::string::npos)
-            output_file = output_file.substr(0, dot);
-        output_file += ".bin";
+            base = base.substr(0, dot);
+        output_file = base + ".bin";
     }
 
     std::ifstream in(input_file);
     if (!in) {
-        std::fprintf(stderr, "Error: cannot open %s\n", input_file);
+        std::fprintf(stderr, "Error: cannot open %s\n", input_file.c_str());
         return 1;
     }
 
@@ -193,7 +202,7 @@ int main(int argc, char* argv[]) {
     out.write(reinterpret_cast<const char*>(code.data()), code.size());
 
     std::printf("S-CALC: %zu bytes assembled from %s → %s\n",
-                code.size(), input_file, output_file.c_str());
+                code.size(), input_file.c_str(), output_file.c_str());
 
     return 0;
 }

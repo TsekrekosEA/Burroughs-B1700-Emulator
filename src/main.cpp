@@ -256,11 +256,10 @@ static void run_self_test() {
         cpu2.regs.X = 0x123456;
         cpu2.regs.Y = 0;
 
-        // 1C: src=X (grp 4, sel 0), dst=Y (grp 4, sel 1)
-        // MC=4 (src_group), MD = sel0<<2 | variant0 = 0x00,
-        // ME=4 (dst_group), MF = sel1<<2 | 0 = 0x04
-        // Encoding: 0x4044
-        uint16_t micro = 0x4044;
+        // 1C: src=X (grp 2, sel 0), dst=Y (grp 2, sel 1)
+        // MC=1, MD=dst_grp=2, ME[7:6]=dst_sel=1, ME[5:4]=src_sel=0, MF=src_grp=2
+        // Encoding: 0x1242
+        uint16_t micro = 0x1242;
         cpu2.mem.write_byte(0, micro >> 8);
         cpu2.mem.write_byte(1, micro & 0xFF);
         cpu2.mem.write_byte(2, 0x00);
@@ -283,10 +282,9 @@ static void run_self_test() {
         cfg3.s_memory_bytes = 4096;
         Processor cpu3(cfg3);
 
-        // 8C: MC=dst_group(4), MD:ME = literal 0x42, MF[1:0] = 10 (8C class)
-        // 8C forces dest_select = 2 → group 4, select 2 = T register
-        // Encoding: 0x4422
-        uint16_t micro = 0x4422;
+        // 8C: MC=8, MD=dst_grp=2 (T register), literal=0x42
+        // Encoding: 0x8242
+        uint16_t micro = 0x8242;
         cpu3.mem.write_byte(0, micro >> 8);
         cpu3.mem.write_byte(1, micro & 0xFF);
         cpu3.mem.write_byte(2, 0x00);
@@ -360,8 +358,8 @@ static void run_self_test() {
         cpu5.mem.write_byte(1, branch & 0xFF);
 
         // addr 2: this should be skipped — set X = 0xFFFFFF (bad)
-        // Use a literal move: 8C to X, literal 0xFF, MF=0x02
-        uint16_t bad_micro = 0x4FF2;  // 8C: grp4, lit=0xFF, MF=2
+        // Use a literal move: 8C to group 2 (sel 2 = T), literal 0xFF
+        uint16_t bad_micro = 0x82FF;
         cpu5.mem.write_byte(2, bad_micro >> 8);
         cpu5.mem.write_byte(3, bad_micro & 0xFF);
 
@@ -396,11 +394,10 @@ static void run_self_test() {
         cpu6.regs.Y = 200;
         cpu6.regs.set_CPL(24);
 
-        // 1C: SUM → T  (SUM is group 6 select 0, T is group 4 select 2)
-        // MC=6(src_grp), MD=0<<2|0=0(src_sel=0,var=0),
-        // ME=4(dst_grp), MF=2<<2|0=8(dst_sel=2,var=0)
-        // Encoding: 0x6048
-        uint16_t sum_to_t = 0x6048;
+        // 1C: SUM → T  (SUM is group 3 select 0, T is group 2 select 2)
+        // MC=1, MD=dst_grp=2, ME[7:6]=dst_sel=2, ME[5:4]=src_sel=0, MF=src_grp=3
+        // Encoding: 0x1283
+        uint16_t sum_to_t = 0x1283;
         cpu6.mem.write_byte(0, sum_to_t >> 8);
         cpu6.mem.write_byte(1, sum_to_t & 0xFF);
         cpu6.mem.write_byte(2, 0x00);
@@ -470,8 +467,8 @@ static void run_self_test() {
         cpu9.mem.write_byte(0, call_micro >> 8);
         cpu9.mem.write_byte(1, call_micro & 0xFF);
 
-        // addr 2 (bit 16):  X = 0x42 (executed AFTER return)
-        uint16_t lit42 = 0x4422;  // 8C: grp4, lit=0x42, MF=2
+        // addr 2 (bit 16):  T = 0x42 (executed AFTER return)
+        uint16_t lit42 = 0x8242;  // 8C: grp2, lit=0x42
         cpu9.mem.write_byte(2, lit42 >> 8);
         cpu9.mem.write_byte(3, lit42 & 0xFF);
 
@@ -485,17 +482,17 @@ static void run_self_test() {
 
         // addr 8 (bit 64):  subroutine target (0 + 16 + 3*16 = 64)
         // Set BR = 0x99 (prove subroutine ran)
-        // 8C to group 5 → select 2 = BR: MC=5, MD:ME=0x99, MF[1:0]=10
-        // Encoding: 0x5992
-        uint16_t lit99_BR = 0x5992;
+        // 8C to group 6 → select 2 = BR: MC=8, MD=6, literal=0x99
+        // Encoding: 0x8699
+        uint16_t lit99_BR = 0x8699;
         cpu9.mem.write_byte(8, lit99_BR >> 8);
         cpu9.mem.write_byte(9, lit99_BR & 0xFF);
 
         // addr 10 (bit 80): Return = TAS → MAR(A)
-        // 1C: src=TAS (grp 10, sel 2), dst=MAR (grp 5, sel 0)
-        // MC=10=0xA, MD=sel2<<2|0=0x08, ME=5, MF=sel0<<2|0=0x00
-        // Encoding: 0xA850
-        uint16_t ret_micro = 0xA850;
+        // 1C: src=TAS (grp 11, sel 2), dst=MAR (grp 4, sel 2)
+        // MC=1, MD=dst_grp=4, ME[7:6]=dst_sel=2, ME[5:4]=src_sel=2, MF=src_grp=11
+        // Encoding: 0x14AB
+        uint16_t ret_micro = 0x14AB;
         cpu9.mem.write_byte(10, ret_micro >> 8);
         cpu9.mem.write_byte(11, ret_micro & 0xFF);
 
